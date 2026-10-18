@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Security: only this site's own scripts may run. No inline scripts, no third-party code, no eval. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' wss: https://*.workers.dev; base-uri 'none'; form-action 'none'; object-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#15110d">
+<meta name="description" content="UncleStev Arcade: browser arcade games with a Nostr leaderboard where every score is replayed and verified.">
+<title>UncleStev Arcade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap">
+<link rel="stylesheet" href="kit/arcade.css">
+<link rel="stylesheet" href="hub/hub.css">
+<script type="module" src="hub/hub.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-row">
+    <span class="tag">ARCADE</span>
+    <button class="acct" id="btnAcct" aria-label="Nostr sign-in and leaderboards"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span id="acctName">Sign in</span></button>
+  </div>
+</header>
+
+<section class="marquee">
+  <div class="wrap">
+    <h1 class="sign"><span class="lights" aria-hidden="true"></span>UNCLESTEV<b>ARCADE</b></h1>
+    <p class="lede">Arcade games that run in your browser. Sign in with Nostr to post scores that the arcade referee has replayed frame by frame and verified.</p>
+  </div>
+</section>
+
+<main class="wrap">
+  <h2 class="section-label">NOW PLAYING</h2>
+  <div class="cabinets" id="cabinets"></div>
+
+  <h2 class="section-label">HOW SCORES WORK</h2>
+  <ol class="steps">
+    <li><b>Sign in without giving up your key.</b> Use a Nostr browser extension or signer app. The arcade never sees your private key.</li>
+    <li><b>Play a ranked run.</b> The referee hands your game a sealed random seed before the first move.</li>
+    <li><b>Post it.</b> The referee replays every frame of your run with the same rules, works out the score itself, and signs it.</li>
+  </ol>
+</main>
+
+<footer class="wrap foot">
+  <p id="refLine">Scores are verified by the arcade referee.</p>
+  <p><a href="https://github.com/UncleStev/arcade" target="_blank" rel="noopener">Source on GitHub</a> · <a href="https://github.com/UncleStev/arcade/blob/main/SECURITY.md" target="_blank" rel="noopener">How keys stay safe</a></p>
+</footer>
+</body>
+</html>

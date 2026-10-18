@@ -1,0 +1,81 @@
+/* Layout: one column — marquee sign, a grid of game cabinets, three-step explainer, footer */
+:root{
+  --bg:#15110d; --panel:#211a14; --panel-2:#2b231b; --line:#3d3228; --ink:#f2e6d2; --muted:#a8977f;
+  --accent:#f0862a; --accent-ink:#1d1209; --phosphor:#ffd55a; --cool:#5ad6ff;
+  --wood-a:#6b3f1d; --wood-b:#55311a; --wood-c:#7d4c24;
+  --display:"Press Start 2P", "Courier New", ui-monospace, monospace;
+  --body:"VT323", "Courier New", ui-monospace, monospace;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:21px;line-height:1.15;
+  padding-top:env(safe-area-inset-top, 0px);padding-bottom:env(safe-area-inset-bottom, 0px)}
+a{color:var(--cool)}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--phosphor);outline-offset:2px}
+.wrap{max-width:980px;margin:0 auto;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+
+.top{position:sticky;top:env(safe-area-inset-top, 0px);z-index:5;background:rgba(21,17,13,.92);border-bottom:1px solid var(--line);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top, 0px);z-index:10;background:var(--bg)}
+.top-row{display:flex;align-items:center;justify-content:space-between;min-height:56px}
+.tag{font-family:var(--display);font-size:11px;letter-spacing:.14em;color:var(--accent)}
+.acct{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);cursor:pointer;font-size:19px}
+.acct svg{width:18px;height:18px;fill:none;stroke:var(--ink);stroke-width:2;stroke-linecap:round}
+.acct:hover{border-color:var(--accent)}
+.acct #acctName{max-width:16ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Marquee: a lit arcade sign on a woodgrain header board */
+.marquee{padding-block:28px 22px;border-bottom:1px solid var(--line);
+  background:
+    repeating-linear-gradient(91deg, transparent 0 6px, rgba(0,0,0,.12) 6px 8px, rgba(255,255,255,.035) 8px 13px),
+    repeating-linear-gradient(89deg, var(--wood-a) 0 23px, var(--wood-b) 23px 31px, var(--wood-c) 31px 47px, var(--wood-a) 47px 60px)}
+.sign{position:relative;margin:0 auto;max-width:640px;text-align:center;padding:26px 18px 24px;border-radius:14px;
+  background:radial-gradient(ellipse at 50% 40%, #3a2412, #1b120a 75%);border:3px solid #120c07;
+  box-shadow:inset 0 0 0 2px rgba(255,213,90,.18), 0 14px 30px rgba(0,0,0,.5);
+  font-family:var(--display);font-weight:400;font-size:clamp(20px, 6.2vw, 44px);line-height:1.2;letter-spacing:.04em;color:var(--phosphor);
+  text-shadow:0 0 10px rgba(255,190,70,.55), 3px 3px 0 #8a3a10;text-wrap:balance}
+.sign b{display:block;font-weight:400;color:var(--accent);font-size:.62em;letter-spacing:.42em;margin-top:.45em;text-shadow:0 0 8px rgba(240,134,42,.6)}
+.lights{position:absolute;inset:7px;border-radius:9px;pointer-events:none;
+  background:
+    radial-gradient(circle, #ffe9a8 0 2.2px, transparent 2.6px) 0 0/16px 16px repeat-x,
+    radial-gradient(circle, #ffe9a8 0 2.2px, transparent 2.6px) 0 100%/16px 16px repeat-x,
+    radial-gradient(circle, #ffe9a8 0 2.2px, transparent 2.6px) 0 0/16px 16px repeat-y,
+    radial-gradient(circle, #ffe9a8 0 2.2px, transparent 2.6px) 100% 0/16px 16px repeat-y;
+  opacity:.85;animation:chase 1.6s steps(2, jump-none) infinite}
+@keyframes chase{50%{opacity:.45}}
+@media (prefers-reduced-motion: reduce){.lights{animation:none}}
+.lede{max-width:52ch;margin:18px auto 0;text-align:center;color:#f7ead6;text-shadow:0 1px 0 rgba(0,0,0,.6);text-wrap:balance}
+
+main{padding-block:26px 8px}
+.section-label{font-family:var(--display);font-size:11px;font-weight:400;letter-spacing:.16em;color:var(--muted);margin:8px 0 14px}
+
+.cabinets{display:grid;grid-template-columns:repeat(auto-fill, minmax(min(100%, 300px), 1fr));gap:18px;margin-bottom:30px}
+.cab{display:flex;flex-direction:column;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:var(--panel);min-width:0}
+.cab .screen{aspect-ratio:16/10;max-width:100%;background:#0b0907;position:relative;border-bottom:3px solid #0b0907}
+.cab .screen img{display:block;width:100%;height:100%;object-fit:cover}
+.cab .screen::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(rgba(0,0,0,.12) 0 1px, transparent 1px 3px);pointer-events:none}
+.cab .body{display:flex;flex-direction:column;gap:10px;padding:14px 16px 16px;flex:1}
+.cab h3{font-family:var(--display);font-weight:400;font-size:15px;margin:0;color:var(--phosphor);letter-spacing:.04em}
+.cab p{margin:0;color:var(--ink)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips span{font-size:17px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 9px;line-height:22px}
+.cab .actions{display:flex;gap:8px;margin-top:auto;padding-top:4px}
+.btn{font-family:var(--display);font-size:10px;letter-spacing:.06em;padding:12px 14px;border-radius:10px;cursor:pointer;text-decoration:none;text-align:center;
+  border:1px solid var(--line);background:var(--panel-2);color:var(--ink)}
+.btn.play{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);flex:1;box-shadow:0 3px 0 #7a3a10}
+.btn.play:active{transform:translateY(2px);box-shadow:none}
+.btn:hover{filter:brightness(1.08)}
+.cab.soon{border-style:dashed;background:transparent}
+.cab.soon .screen{display:grid;place-items:center;color:var(--muted);font-family:var(--display);font-size:11px;letter-spacing:.12em;background:repeating-linear-gradient(45deg, #1a140f 0 10px, #1d1712 10px 20px)}
+
+.steps{list-style:none;counter-reset:s;margin:0 0 30px;padding:0;display:grid;grid-template-columns:repeat(auto-fit, minmax(min(100%, 260px), 1fr));gap:12px}
+.steps li{counter-increment:s;border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--panel);min-width:0}
+.steps li::before{content:counter(s);display:inline-grid;place-items:center;width:26px;height:26px;margin-bottom:8px;border-radius:50%;
+  background:var(--accent);color:var(--accent-ink);font-family:var(--display);font-size:11px}
+.steps b{display:block;color:var(--phosphor);font-weight:400;margin-bottom:2px}
+
+.foot{border-top:1px solid var(--line);padding-block:18px 26px;color:var(--muted);font-size:18px}
+.foot p{margin:4px 0}
+.foot code{font-size:13px;word-break:break-all}

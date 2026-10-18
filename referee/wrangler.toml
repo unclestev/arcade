@@ -1,0 +1,14 @@
+# UncleStev Arcade referee — Cloudflare Worker config.
+# Deploy: connect this repo in the Cloudflare dashboard with root directory "referee",
+# or run `npx wrangler deploy` from this folder.
+name = "arcade-referee"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+ARCADE_NAME = "UncleStev Arcade"
+# Sites allowed to call the referee from a browser (comma-separated).
+ALLOWED_ORIGINS = "https://unclestev.github.io"
+
+# The referee's Nostr private key is a secret, never stored in this file:
+#   Dashboard → Worker → Settings → Variables and Secrets → Add → Secret → REFEREE_SECRET

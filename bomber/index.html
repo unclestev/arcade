@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<!-- Security: only this site's own scripts may run. No inline scripts, no third-party code, no eval.
+     Network access is limited to Nostr relays (wss:) and the Bomber referee. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' wss: https://*.workers.dev; base-uri 'none'; form-action 'none'; object-src 'none'; manifest-src 'self'; require-trusted-types-for 'script'; trusted-types 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#15110d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="description" content="Bomber, part of UncleStev Arcade: catch the falling bombs. Atari-style Classic mode plus a modern Next Gen remake, with a verified Nostr leaderboard. Touch, keyboard, mouse or Logitech G29 wheel.">
+<title>Bomber</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Press+Start+2P&family=VT323&display=swap">
+<link rel="stylesheet" href="../kit/arcade.css">
+<link rel="stylesheet" href="css/bomber.css">
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="bar">
+    <a class="brand" id="brand" href="../" aria-label="Bomber, part of UncleStev Arcade">BOMBER</a>
+    <span class="chip" id="ctlChip">Input <b id="ctlName">Keyboard</b></span>
+    <div class="spacer"></div>
+    <div class="hi">HI <b id="hiTop">0</b></div>
+    <button class="icon-btn" id="btnPause" aria-label="Pause" hidden><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button>
+    <button class="icon-btn acct" id="btnAcct" aria-label="Nostr sign-in and leaderboards"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span class="who" id="acctName">Sign in</span></button>
+    <button class="icon-btn" id="btnFull" aria-label="Full screen"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <button class="icon-btn" id="btnSettings" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
+  </header>
+
+  <main class="stage" id="stage">
+    <div class="tv">
+      <div class="glass" id="glass">
+        <canvas id="screen" width="160" height="192" aria-label="Bomber Classic screen"></canvas>
+        <canvas id="ng" width="320" height="400" aria-label="Bomber Next Gen screen" hidden></canvas>
+
+        <div class="ov shade" id="ovMenu">
+          <h1 class="logo">BOMBER</h1>
+          <p class="tagline">Sparky is tossing lit bombs off the wall. Catch every one in your water buckets.</p>
+          <div class="modes">
+            <button class="mode sel" id="btnClassic">CLASSIC<small>1981-style</small></button>
+            <button class="mode ng" id="btnNextGen">NEXT GEN<small>combos + power-ups</small></button>
+          </div>
+          <div class="menu-links">
+            <button class="linkbtn" id="btnBoard">LEADERBOARD</button>
+          </div>
+          <p class="small">CLASSIC HI <b id="hiMenu">0</b> · NEXT GEN HI <b id="hiMenuNg">0</b></p>
+        </div>
+
+        <div class="ov msg" id="ovMsg" hidden>
+          <p class="msg-title" id="msgTitle">GROUP 1</p>
+          <p class="msg-sub" id="msgSub">10 bombs · 1 point each</p>
+          <p class="msg-hint" id="msgHint">Press Space</p>
+        </div>
+
+        <div class="ov shade" id="ovPause" hidden>
+          <p class="logo sm">PAUSED</p>
+          <div class="modes">
+            <button class="mode" id="btnResume">RESUME</button>
+            <button class="mode ghost" id="btnQuit">QUIT</button>
+          </div>
+          <p class="small">P or Esc · Options on the wheel</p>
+        </div>
+
+        <div class="ov shade" id="ovOver" hidden>
+          <p class="logo sm">GAME OVER</p>
+          <p class="tagline">Score <b id="overScore">0</b></p>
+          <div class="stats" id="overStats" hidden>
+            <div><b id="stBest">0</b><span>Best combo</span></div>
+            <div><b id="stCaught">0</b><span>Caught</span></div>
+            <div><b id="stGroup">1</b><span>Group</span></div>
+          </div>
+          <p class="small" id="overHi">HI SCORE <b>0</b></p>
+          <div class="ax-result" id="overNostr" hidden></div>
+          <div class="modes">
+            <button class="mode" id="btnAgain">PLAY AGAIN</button>
+            <button class="mode ghost" id="btnMenu">MENU</button>
+          </div>
+        </div>
+      </div>
+      <div class="plate" id="plate">BOMBER · CLASSIC</div>
+    </div>
+
+    <div class="pad" id="pad"><div><strong>◀ DRAG TO STEER ▶</strong>Slide anywhere here to move the buckets. Tap to start a drop.</div></div>
+    <div class="keys" id="keys">
+      <span><kbd>←</kbd> <kbd>→</kbd> or <kbd>A</kbd> <kbd>D</kbd> move</span>
+      <span><kbd>SPACE</kbd> start drop</span>
+      <span><kbd>P</kbd> pause</span>
+      <span>Mouse steers like a paddle</span>
+      <span>G29: turn to steer, any button drops</span>
+    </div>
+  </main>
+</div>
+
+<div class="modal" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="setTitle">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2 id="setTitle">SETTINGS</h2>
+      <button class="icon-btn" id="setClose" aria-label="Close settings"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <section>
+      <h3>Sound &amp; feel</h3>
+      <label class="row" for="optSound"><span>Sound effects</span><input type="checkbox" id="optSound"></label>
+      <label class="row" for="optMusic"><span>Next Gen music</span><input type="checkbox" id="optMusic"></label>
+      <label class="row" for="optShake"><span>Screen shake (Next Gen)</span><input type="checkbox" id="optShake"></label>
+      <label class="row" for="optVibrate"><span>Phone vibration</span><input type="checkbox" id="optVibrate"></label>
+    </section>
+    <section>
+      <h3>Touch</h3>
+      <label class="row col" for="optTouch"><span>Drag sensitivity <b id="valTouch">1.3×</b></span><input type="range" id="optTouch" min="0.6" max="2.5" step="0.1"></label>
+    </section>
+    <section>
+      <h3>Racing wheel</h3>
+      <p class="status" id="padStatus">No controller detected. Plug in the wheel and press any button on it.</p>
+      <div class="meter" aria-hidden="true"><div class="needle" id="needle"></div></div>
+      <label class="row" for="optWheelMode"><span>Controller type</span>
+        <select id="optWheelMode"><option value="auto">Auto-detect</option><option value="wheel">Always wheel</option><option value="pad">Always gamepad</option></select></label>
+      <label class="row col" for="optDeg"><span>Turn to cross the screen <b id="valDeg">180°</b></span><input type="range" id="optDeg" min="60" max="900" step="10"></label>
+      <label class="row" for="optInvert"><span>Invert steering</span><input type="checkbox" id="optInvert"></label>
+      <button class="btn" id="btnCenter">SET CURRENT POSITION AS CENTER</button>
+      <p class="note">Steering assumes the G29's full 900° range in G HUB. On the menu, turn the wheel to pick a mode. Any wheel button starts a drop; Options pauses.</p>
+    </section>
+  </div>
+</div>
+</body>
+</html>

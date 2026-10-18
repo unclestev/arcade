@@ -1,0 +1,75 @@
+/* UncleStev Arcade kit — sign-in sheet, leaderboard and game-over panel.
+   Games theme it by setting these variables on :root or any ancestor. */
+:root{
+  --ax-scrim:rgba(10,7,4,.74); --ax-panel:#211a14; --ax-panel-2:#2b231b; --ax-line:#3d3228; --ax-ink:#f2e6d2; --ax-muted:#a8977f;
+  --ax-accent:#f0862a; --ax-accent-ink:#1d1209; --ax-cool:#5ad6ff; --ax-gold:#ffd55a; --ax-good:#7ee0a1; --ax-bad:#ff9a85;
+  --ax-head-font:"Press Start 2P", "Courier New", ui-monospace, monospace;
+  --ax-body-font:"VT323", "Courier New", ui-monospace, monospace;
+}
+.ax-modal{position:fixed;inset:0;z-index:50;background:var(--ax-scrim);display:grid;place-items:center;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));
+  padding-block:calc(16px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-bottom, 0px));
+  font-family:var(--ax-body-font);font-size:20px;color:var(--ax-ink)}
+.ax-modal[hidden]{display:none!important}
+.ax-sheet{width:min(480px,100%);max-height:100%;overflow:auto;background:var(--ax-panel);border:1px solid var(--ax-line);border-radius:16px;
+  padding:16px 20px 20px;display:flex;flex-direction:column;gap:14px;touch-action:pan-y;box-sizing:border-box}
+.ax-sheet *{box-sizing:border-box}
+.ax-sheet button{font:inherit;color:inherit}
+.ax-sheet button:focus-visible,.ax-sheet input:focus-visible{outline:2px solid var(--ax-gold);outline-offset:2px}
+.ax-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ax-head h2{font-family:var(--ax-head-font);font-size:12px;font-weight:400;color:var(--ax-accent);margin:0;letter-spacing:.04em;line-height:1.4}
+.ax-icon{width:38px;height:38px;flex:none;border-radius:10px;border:1px solid var(--ax-line);background:var(--ax-panel-2);display:grid;place-items:center;cursor:pointer;padding:0}
+.ax-icon svg{width:18px;height:18px;fill:none;stroke:var(--ax-ink);stroke-width:2;stroke-linecap:round}
+.ax-tabs{display:flex;gap:6px;border-bottom:1px solid var(--ax-line);margin-top:-4px}
+.ax-tabs button{font-family:var(--ax-head-font);font-size:9px;letter-spacing:.08em;background:none;border:0;border-bottom:3px solid transparent;
+  color:var(--ax-muted);padding:10px 8px;cursor:pointer}
+.ax-tabs button[aria-selected="true"]{color:var(--ax-ink);border-bottom-color:var(--ax-accent)}
+.ax-pane{display:flex;flex-direction:column;gap:10px}
+.ax-pane[hidden],.ax-stack[hidden],.ax-qrbox[hidden],.ax-seg[hidden],.ax-callout[hidden]{display:none!important}
+.ax-controls{display:flex;gap:8px;flex-wrap:wrap}
+.ax-seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--ax-line);border-radius:9px;overflow:hidden}
+.ax-seg button{font-size:18px;background:none;border:0;color:var(--ax-muted);padding:4px 12px;cursor:pointer}
+.ax-seg button[aria-pressed="true"]{background:var(--ax-panel-2);color:var(--ax-gold)}
+.ax-empty{color:var(--ax-muted);margin:4px 0;line-height:1.1}
+.ax-empty a{color:var(--ax-cool)}
+.ax-lb{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.ax-lb li{display:grid;grid-template-columns:2.4ch 28px minmax(0,1fr) auto;align-items:center;gap:10px;padding:6px 4px;border-bottom:1px solid var(--ax-line)}
+.ax-lb li.me{background:rgba(240,134,42,.12)}
+.ax-rank{color:var(--ax-muted);font-variant-numeric:tabular-nums;text-align:right}
+.ax-ph{display:block;width:28px;height:28px;border-radius:50%;object-fit:cover;background:var(--ax-panel-2)}
+.ax-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.05}
+.ax-name small{display:block;color:var(--ax-muted);font-size:15px}
+.ax-pts{color:var(--ax-gold);font-variant-numeric:tabular-nums}
+.ax-stack{display:flex;flex-direction:column;gap:10px}
+.ax-opt{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;width:100%;padding:12px 14px;border-radius:12px;
+  border:1px solid var(--ax-line);background:var(--ax-panel-2);cursor:pointer;line-height:1.05}
+.ax-opt b{font-family:var(--ax-head-font);font-size:10px;font-weight:400;letter-spacing:.06em}
+.ax-opt span{color:var(--ax-muted);font-size:17px}
+.ax-opt:hover:not(:disabled){border-color:var(--ax-accent)}
+.ax-opt:disabled{opacity:.55;cursor:default}
+.ax-label{display:flex;flex-direction:column;gap:6px;line-height:1.1}
+.ax-field{display:flex;gap:8px}
+.ax-field input{flex:1;min-width:0;font:inherit;font-size:18px;background:rgba(0,0,0,.35);color:var(--ax-ink);border:1px solid var(--ax-line);border-radius:8px;padding:6px 10px;
+  -webkit-user-select:text;user-select:text}
+.ax-callout{margin:0;border:1px solid var(--ax-line);border-left:3px solid var(--ax-cool);border-radius:8px;padding:8px 12px;line-height:1.1;font-size:18px}
+.ax-callout.warn{border-left-color:#ff7a5a;color:#ffd2c7}
+.ax-qrbox{display:flex;flex-direction:column;align-items:center;gap:10px}
+.ax-qrbox canvas{width:220px;height:220px;max-width:100%;border-radius:10px;background:#fff;image-rendering:pixelated}
+.ax-btnrow{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.ax-btn{font-family:var(--ax-head-font);font-size:9px;letter-spacing:.06em;padding:10px 12px;border-radius:9px;cursor:pointer;
+  border:1px solid var(--ax-cool);background:rgba(10,16,28,.85);color:#f2f7ff;line-height:1.3}
+.ax-btn.primary{border-color:var(--ax-accent);background:var(--ax-accent);color:var(--ax-accent-ink)}
+.ax-btn:disabled{opacity:.55;cursor:default}
+.ax-btn[hidden]{display:none}
+.ax-status{font-size:18px;line-height:1.1;color:var(--ax-muted);margin:0;max-width:40ch;text-wrap:balance;text-align:center}
+.ax-status:empty{display:none}
+.ax-status.ok{color:var(--ax-good)}.ax-status.bad{color:var(--ax-bad)}
+.ax-mono{font-family:ui-monospace, "SF Mono", Menlo, monospace;font-size:13px;word-break:break-all;color:var(--ax-muted);-webkit-user-select:text;user-select:text}
+.ax-profile{display:flex;align-items:center;gap:12px}
+.ax-profile img{width:48px;height:48px;border-radius:50%;object-fit:cover;background:var(--ax-panel-2)}
+.ax-nm{font-size:22px;line-height:1}
+.ax-note{margin:0;font-size:17px;line-height:1.1;color:var(--ax-muted)}
+.ax-preview{margin:0;white-space:pre-wrap;background:rgba(0,0,0,.35);border:1px solid var(--ax-line);border-radius:8px;padding:10px 12px;line-height:1.1}
+.ax-result{display:flex;flex-direction:column;align-items:center;gap:8px}
+.ax-result[hidden]{display:none}
+.ax-avatar{width:22px;height:22px;border-radius:50%;object-fit:cover}
