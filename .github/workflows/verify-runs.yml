@@ -23,6 +23,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Check configuration
+        env:
+          HAS_SECRET: ${{ secrets.VERIFIER_TOKEN != '' }}
+          HAS_VARIABLE: ${{ vars.VERIFIER_TOKEN != '' }}
+        run: |
+          if [ "$HAS_SECRET" != "true" ]; then
+            if [ "$HAS_VARIABLE" = "true" ]; then
+              echo "::error::VERIFIER_TOKEN was saved as a Variable. Delete it and add it under the Secrets tab instead."
+            else
+              echo "::error::No repository secret named VERIFIER_TOKEN is visible to this workflow (Settings > Secrets and variables > Actions > Secrets > Repository secrets)."
+            fi
+          else
+            echo "::notice::VERIFIER_TOKEN secret found."
+          fi
       - name: Replay pending runs
         run: node tools/verify-pending.mjs
         env:
