@@ -12,7 +12,14 @@ The most important rule in UncleStev Arcade: **a player's Nostr private key must
   Signer-app connections request only `sign_event:27235,sign_event:1`.
 - **Checked results.** Every event a signer returns is checked before use: valid signature, the signed-in pubkey, and exactly the kind, tags and content the game asked for.
 - **Session keys.** Nostr Connect needs a throwaway session key for the encrypted channel to the signer app. The arcade creates it in memory for that visit only and never writes it to storage. It cannot sign as you, and it is gone when you reload.
-- **What is stored.** `localStorage` holds settings, local high scores, and `arcade.nostr = { method, pubkey }` — public information only.
+- **What is stored.** `localStorage` holds settings, local high scores, `arcade.nostr = { method, pubkey }` (public information), and for guests `arcade.guest = { id, name }`.
+
+## Guests
+
+- Guests have no keys at all. Their browser keeps a random guest id (not a key: it can't sign anything). Tickets for a guest run are bound to that id.
+- Guest scores need no signature: the sealed ticket plus a replay the referee can verify is the proof. The referee publishes the score with the nickname and a one-way hash of the guest id, so nobody else learns the id or can overwrite that guest's score.
+- Nicknames are checked by the referee (`kit/names.js`): 2–16 letters, numbers, spaces, dots, dashes or underscores; hidden and direction-changing characters removed; a short list of slurs and obscenities blocked. Nicknames aren't unique, and the leaderboard labels guests clearly so they can't pass as signed-in players.
+- The arcade deliberately does **not** create Nostr keys for guests. A key made by a web page would live in the page, where clearing site data loses it and a script injection could steal it. New players who want an account are pointed to dedicated signers instead.
 
 ## The pages
 

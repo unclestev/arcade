@@ -79,6 +79,10 @@ arcade.showResult(document.getElementById('resultPanel'), {
 
 While `arcade.isSheetOpen()` is true, the kit owns the keyboard; pause the game when `onOpen` fires.
 
+The game-over panel has a nickname box for guests, so ignore key presses whose target is an `input` in your game's keyboard handler.
+
+Players who aren't signed in get guest tickets automatically, so every run is ranked as long as the referee is reachable.
+
 ### 6. Ship it
 
 Push the repo. Cloudflare redeploys the referee with the new game, and GitHub Pages serves the new folder. Add a test run with the local referee before going live (see `referee/README.md`).

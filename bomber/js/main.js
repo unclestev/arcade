@@ -966,6 +966,7 @@ document.addEventListener('contextmenu', e => { if (!(e.target.closest && e.targ
 document.addEventListener('selectstart', e => { if (!(e.target.closest && e.target.closest('input, .ax-mono'))) e.preventDefault(); });
 
 addEventListener('keydown', e => {
+  if (e.target && e.target.closest && e.target.closest('input, textarea, select')) return; // typing a nickname
   if (!$('settings').hidden) { if (e.key === 'Escape') closeSettings(); return; }
   const k = e.key;
   const isL = k === 'ArrowLeft' || k === 'a' || k === 'A', isR = k === 'ArrowRight' || k === 'd' || k === 'D';

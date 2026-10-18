@@ -1,6 +1,7 @@
 // UncleStev Arcade referee — a Cloudflare Worker that verifies runs for every game in the arcade.
 //
 // 1. GET  /ticket?game=&board=&pubkey=  hands out a one-run seed, sealed with an HMAC so it can't be forged.
+//    GET  /ticket?game=&board=&guest=   same for guests (no Nostr account): a random guest id instead of a pubkey.
 // 2. POST /verify                       takes a finished run (ticket + rules version + recorded inputs), asks
 //                                       that game's verify module to replay it with the same rules as the
 //                                       browser, and if it checks out, signs the score with the referee key.
@@ -9,12 +10,18 @@
 //
 // The referee's private key lives only in the REFEREE_SECRET secret on Cloudflare.
 // Players' keys never come here: they prove who they are with a NIP-98 signed request.
+// Guests need no key at all: their ticket plus a replay that checks out is the proof, and the score
+// is published under a nickname with a hash of their guest id.
 
 import { GAMES } from './games.js';
+import { checkName } from '../../kit/names.js';
 import { finalizeEvent, getPublicKey, verifyEvent, nip19, sha256, bytesToHex, hexToBytes } from '../../kit/vendor/nostr.js';
 
 const HEX64 = /^[0-9a-f]{64}$/;
 const SEED = /^[0-9a-f]{32}$/;
+const GUEST = /^[0-9a-f]{32}$/;
+// Guests are identified by a random id kept in their browser; scores carry only a one-way hash of it.
+const guestTag = id => bytesToHex(sha256(enc.encode('arcade-guest:' + id))).slice(0, 32);
 const STAT = /^[a-z0-9_]{1,24}$/;
 const TICKET_TTL_MS = 6 * 3600 * 1000;
 const MAX_BODY = 512 * 1024;
@@ -73,10 +80,13 @@ export default {
 
 // ---------- tickets ----------
 async function issueTicket(url, key) {
-  const game = url.searchParams.get('game'), board = url.searchParams.get('board'), pubkey = url.searchParams.get('pubkey');
-  if (!findGame(game, board) || !HEX64.test(pubkey || '')) throw new HttpError(400, 'Bad ticket request.');
+  const game = url.searchParams.get('game'), board = url.searchParams.get('board');
+  const pubkey = url.searchParams.get('pubkey'), guest = url.searchParams.get('guest');
+  if (!findGame(game, board)) throw new HttpError(400, 'Bad ticket request.');
+  const who = HEX64.test(pubkey || '') ? { p: pubkey } : GUEST.test(guest || '') ? { q: guest } : null;
+  if (!who) throw new HttpError(400, 'Bad ticket request.');
   const seed = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
-  const body = b64url(enc.encode(JSON.stringify({ v: 1, g: game, b: board, p: pubkey, s: seed, t: Date.now() })));
+  const body = b64url(enc.encode(JSON.stringify({ v: 1, g: game, b: board, ...who, s: seed, t: Date.now() })));
   const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key.hmacKey, enc.encode(body)));
   return { ticket: body + '.' + b64url(sig), seed };
 }
@@ -88,7 +98,8 @@ async function openTicket(ticket, key) {
   try { ok = await crypto.subtle.verify('HMAC', key.hmacKey, fromB64url(sig), enc.encode(body)); } catch (e) {}
   if (!ok) throw new HttpError(403, 'This run was not started by the referee.');
   const t = JSON.parse(new TextDecoder().decode(fromB64url(body)));
-  if (t.v !== 1 || !findGame(t.g, t.b) || !HEX64.test(t.p) || !SEED.test(t.s) || !Number.isFinite(t.t)) throw new HttpError(400, 'Bad ticket.');
+  const whoOk = t.p !== undefined ? HEX64.test(t.p) && t.q === undefined : GUEST.test(t.q || '');
+  if (t.v !== 1 || !findGame(t.g, t.b) || !whoOk || !SEED.test(t.s) || !Number.isFinite(t.t)) throw new HttpError(400, 'Bad ticket.');
   if (Date.now() - t.t > TICKET_TTL_MS) throw new HttpError(403, 'This run is too old to verify.');
   return t;
 }
@@ -113,12 +124,23 @@ async function verifyRun(req, url, key, env) {
   if (len > MAX_BODY) throw new HttpError(413, 'Run is too large.');
   const bodyText = await req.text();
   if (bodyText.length > MAX_BODY) throw new HttpError(413, 'Run is too large.');
-  const player = checkAuth(req.headers.get('Authorization'), url, bodyText);
 
   let body;
   try { body = JSON.parse(bodyText); } catch (e) { throw new HttpError(400, 'Bad request.'); }
   const t = await openTicket(body.ticket, key);
-  if (t.p !== player) throw new HttpError(403, 'This run belongs to a different player.');
+  let who;
+  if (t.p) {
+    // Nostr player: must prove it's their run with a NIP-98 signature.
+    const player = checkAuth(req.headers.get('Authorization'), url, bodyText);
+    if (t.p !== player) throw new HttpError(403, 'This run belongs to a different player.');
+    who = [['d', `arcade:${t.g}:${t.b}:${player}`], ['p', player]];
+  } else {
+    // Guest: the ticket was issued for their private guest id; they choose a nickname.
+    const n = checkName(body.name);
+    if (!n.ok) throw new HttpError(422, n.error);
+    const tag = guestTag(t.q);
+    who = [['d', `arcade:${t.g}:${t.b}:guest:${tag}`], ['guest', tag], ['name', n.name]];
+  }
   const game = findGame(t.g, t.b);
   if (body.rules !== game.rules) throw new HttpError(409, `${game.title} was updated. Reload the page to play the new version.`);
 
@@ -135,8 +157,7 @@ async function verifyRun(req, url, key, env) {
     kind: 30078,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
-      ['d', `arcade:${t.g}:${t.b}:${player}`],
-      ['p', player],
+      ...who,
       ['t', 'arcade'], ['t', t.g], ['t', `${t.g}-${t.b}`],
       ['game', t.g], ['board', t.b],
       ['score', String(r.score)],

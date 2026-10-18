@@ -16,8 +16,10 @@ import {
   BunkerSigner, parseBunkerInput, createNostrConnectURI, sha256, bytesToHex,
 } from './vendor/nostr.js';
 import { ARCADE_NAME, HOME_URL, RELAYS, CONNECT_RELAYS, REFEREE_URL, REFEREE_PUBKEY, SCORE_KIND } from './config.js';
+import { checkName } from './names.js';
 
 const HEX64 = /^[0-9a-f]{64}$/;
+const HEX32 = /^[0-9a-f]{32}$/;
 const ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const now = () => Math.floor(Date.now() / 1000);
 const STORE_KEY = 'arcade.nostr'; // holds { method, pubkey } only — public information
@@ -154,6 +156,27 @@ export function restore() {
   }, 150);
 }
 
+// ---------- guests ----------
+// Players without a Nostr account post verified scores under a nickname. No keys are involved:
+// a random guest id stays in this browser and is only ever sent to the referee, which publishes
+// a one-way hash of it so nobody else can overwrite a guest's score.
+const GUEST_KEY = 'arcade.guest';
+export function guest() {
+  let g = null;
+  try { g = JSON.parse(localStorage.getItem(GUEST_KEY) || 'null'); } catch (e) {}
+  if (!g || !HEX32.test(g.id)) {
+    g = { id: bytesToHex(crypto.getRandomValues(new Uint8Array(16))), name: '' };
+    try { localStorage.setItem(GUEST_KEY, JSON.stringify(g)); } catch (e) {}
+  }
+  return { id: g.id, name: typeof g.name === 'string' ? g.name : '' };
+}
+export function setGuestName(name) {
+  const g = guest();
+  try { localStorage.setItem(GUEST_KEY, JSON.stringify({ id: g.id, name })); } catch (e) {}
+}
+export const guestTag = id => bytesToHex(sha256(new TextEncoder().encode('arcade-guest:' + id))).slice(0, 32);
+export { checkName };
+
 // ---------- profiles ----------
 const profiles = new Map();
 const clean = s => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f​-‏‪-‮⁦-⁩]/g, '').trim().slice(0, 40) : '');
@@ -188,17 +211,26 @@ export async function fetchProfiles(pks) {
 //   game, board, score, rules, replay, and any number of ["stat", name, value]
 export const scoreTag = (game, board) => `${game}-${board}`;
 export const scoreD = (game, board, pk) => `arcade:${game}:${board}:${pk}`;
+export const guestD = (game, board, tag) => `arcade:${game}:${board}:guest:${tag}`;
 
+// Returns { key, pubkey | null, guest | null, name, score, stats, rules, at } for a valid referee-signed record.
 export function parseScore(e, game, board) {
   if (!e || e.kind !== SCORE_KIND || e.pubkey !== REFEREE_PUBKEY || !Array.isArray(e.tags)) return null;
   const tag = k => { const t = e.tags.find(x => Array.isArray(x) && x[0] === k); return t ? t[1] : undefined; };
-  const p = tag('p');
-  if (!HEX64.test(p || '') || tag('d') !== scoreD(game, board, p) || tag('game') !== game || tag('board') !== board) return null;
+  if (tag('game') !== game || tag('board') !== board) return null;
+  const p = tag('p'), g = tag('guest');
+  let who;
+  if (HEX64.test(p || '') && tag('d') === scoreD(game, board, p)) who = { key: p, pubkey: p, guest: null, name: '' };
+  else if (!p && HEX32.test(g || '') && tag('d') === guestD(game, board, g)) {
+    const n = checkName(tag('name'));
+    if (!n.ok || n.name !== tag('name')) return null;
+    who = { key: 'guest:' + g, pubkey: null, guest: g, name: n.name };
+  } else return null;
   const score = /^\d{1,12}$/.test(tag('score') || '') ? Number(tag('score')) : null;
   if (score === null || !verifyEvent(e)) return null;
   const stats = {};
   for (const t of e.tags) if (t[0] === 'stat' && /^[a-z0-9_]{1,24}$/.test(t[1] || '') && /^\d{1,12}$/.test(t[2] || '')) stats[t[1]] = Number(t[2]);
-  return { pubkey: p, score, stats, rules: String(tag('rules') || ''), at: e.created_at };
+  return { ...who, score, stats, rules: String(tag('rules') || ''), at: e.created_at };
 }
 export async function fetchBoard(game, board) {
   if (!refereeReady() || !ID.test(game) || !ID.test(board)) return null;
@@ -208,17 +240,18 @@ export async function fetchBoard(game, board) {
   for (const e of evs) {
     const r = parseScore(e, game, board);
     if (!r) continue;
-    const cur = best.get(r.pubkey);
-    if (!cur || r.at > cur.at) best.set(r.pubkey, r); // newest verified record per player (replaceable event)
+    const cur = best.get(r.key);
+    if (!cur || r.at > cur.at) best.set(r.key, r); // newest verified record per player (replaceable event)
   }
   return [...best.values()].sort((a, b) => b.score - a.score || a.at - b.at);
 }
-export async function fetchMyBest(game, board, pk) {
+// who: { pubkey } for a signed-in player, or { guest: <guest id> } for a guest.
+export async function fetchMyBest(game, board, who) {
   if (!refereeReady()) return null;
-  const evs = await getPool().querySync(RELAYS,
-    { kinds: [SCORE_KIND], authors: [REFEREE_PUBKEY], '#d': [scoreD(game, board, pk)] }, { maxWait: 4000 });
+  const d = who.pubkey ? scoreD(game, board, who.pubkey) : guestD(game, board, guestTag(who.guest));
+  const evs = await getPool().querySync(RELAYS, { kinds: [SCORE_KIND], authors: [REFEREE_PUBKEY], '#d': [d] }, { maxWait: 4000 });
   let best = null;
-  for (const e of evs) { const r = parseScore(e, game, board); if (r && r.pubkey === pk && (!best || r.at > best.at)) best = r; }
+  for (const e of evs) { const r = parseScore(e, game, board); if (r && (!best || r.at > best.at)) best = r; }
   return best;
 }
 export async function fetchFollows(pk) {
@@ -231,9 +264,13 @@ export async function fetchFollows(pk) {
 }
 
 // ---------- referee ----------
-export async function requestTicket(game, board, pubkey) {
-  if (!refereeReady() || !HEX64.test(pubkey) || !ID.test(game) || !ID.test(board)) return null;
-  const q = new URLSearchParams({ game, board, pubkey });
+// who: { pubkey } for a signed-in player, or { guest: <guest id> } for a guest.
+export async function requestTicket(game, board, who) {
+  if (!refereeReady() || !ID.test(game) || !ID.test(board)) return null;
+  const q = new URLSearchParams({ game, board });
+  if (who.pubkey && HEX64.test(who.pubkey)) q.set('pubkey', who.pubkey);
+  else if (who.guest && HEX32.test(who.guest)) q.set('guest', who.guest);
+  else return null;
   const r = await withTimeout(fetch(`${REFEREE_URL}/ticket?${q}`, { cache: 'no-store', credentials: 'omit' }), 8000, 'Referee timed out.');
   if (!r.ok) throw new Error('Referee unavailable.');
   const j = await r.json();
@@ -259,6 +296,23 @@ export async function submitVerified({ game, board, ticket, rules, replay, score
   if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error.slice(0, 160) : 'The referee could not verify this run.');
   const r = parseScore(j.event, game, board);
   if (!r || r.pubkey !== signer.pubkey || r.score !== score) throw new Error('The referee sent back an unexpected result.');
+  const relays = await publish(j.event);
+  return { relays, record: r };
+}
+
+// Guests: no signature needed. The ticket (bound to the guest id) and the replay prove the run.
+export async function submitGuest({ game, board, ticket, rules, replay, score, name, guestId }) {
+  const n = checkName(name);
+  if (!n.ok) throw new Error(n.error);
+  const res = await withTimeout(fetch(`${REFEREE_URL}/verify`, {
+    method: 'POST', credentials: 'omit', cache: 'no-store',
+    body: JSON.stringify({ ticket, rules, replay, name: n.name }), headers: { 'Content-Type': 'application/json' },
+  }), 20000, 'The referee took too long.');
+  let j = {};
+  try { j = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error.slice(0, 160) : 'The referee could not verify this run.');
+  const r = parseScore(j.event, game, board);
+  if (!r || r.guest !== guestTag(guestId) || r.name !== n.name || r.score !== score) throw new Error('The referee sent back an unexpected result.');
   const relays = await publish(j.event);
   return { relays, record: r };
 }

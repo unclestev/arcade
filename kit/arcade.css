@@ -73,3 +73,16 @@
 .ax-result{display:flex;flex-direction:column;align-items:center;gap:8px}
 .ax-result[hidden]{display:none}
 .ax-avatar{width:22px;height:22px;border-radius:50%;object-fit:cover}
+.ax-sub{font-family:var(--ax-head-font);font-size:9px;font-weight:400;letter-spacing:.1em;color:var(--ax-muted);margin:10px 0 0;padding-top:12px;border-top:1px solid var(--ax-line)}
+.ax-gets{display:grid;grid-template-columns:repeat(auto-fit, minmax(min(100%, 180px), 1fr));gap:8px}
+.ax-get{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:10px;border:1px solid var(--ax-line);background:var(--ax-panel-2);
+  color:var(--ax-ink);text-decoration:none;line-height:1.05}
+.ax-get b{color:var(--ax-cool);font-weight:400}
+.ax-get span{color:var(--ax-muted);font-size:16px}
+.ax-get:hover{border-color:var(--ax-cool)}
+.ax-who{display:inline-flex;align-items:center;gap:6px;max-width:100%}
+.ax-badge{font-family:var(--ax-head-font);font-size:7px;letter-spacing:.08em;color:var(--ax-muted);border:1px solid var(--ax-line);border-radius:4px;padding:2px 4px;flex:none}
+.ax-guest{width:min(320px,100%)}
+.ax-guest[hidden]{display:none}
+.ax-guest input{text-align:center}
+.ax-guest input:disabled{opacity:.6}

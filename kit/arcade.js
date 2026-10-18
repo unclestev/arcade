@@ -59,7 +59,7 @@ function build() {
   E.title = h('h2', { id: 'axTitle', text: ARCADE_NAME.toUpperCase() });
   E.close = h('button', { class: 'ax-icon', 'aria-label': 'Close', onclick: close }, icon(['M6 6l12 12M18 6L6 18']));
   E.tabBoard = h('button', { role: 'tab', 'aria-selected': 'true', onclick: () => select('board') }, 'LEADERBOARD');
-  E.tabAcct = h('button', { role: 'tab', 'aria-selected': 'false', onclick: () => select('acct') }, 'ACCOUNT');
+  E.tabAcct = h('button', { role: 'tab', 'aria-selected': 'false', onclick: () => select('acct') }, 'SIGN IN');
   E.gameSeg = h('div', { class: 'ax-seg', role: 'group', 'aria-label': 'Game' });
   E.boardSeg = h('div', { class: 'ax-seg', role: 'group', 'aria-label': 'Board' });
   E.scopeSeg = h('div', { class: 'ax-seg', role: 'group', 'aria-label': 'Whose scores' });
@@ -87,12 +87,21 @@ function build() {
   E.warn = h('p', { class: 'ax-callout warn', text: 'That looks like a private key. Never paste it into a website, including this one. It was not stored or sent anywhere; the box has been cleared.' });
   E.warn.hidden = true;
   E.signStatus = h('p', { class: 'ax-status' });
+  const getLink = (href, name, text) => h('a', { class: 'ax-get', href, target: '_blank', rel: 'noopener' }, h('b', { text: name }), h('span', { text }));
   E.out = h('div', { class: 'ax-stack' },
-    h('p', { class: 'ax-callout', text: 'The arcade never asks for, sees or stores your private key. Your browser extension or signer app keeps it and asks you before anything is signed.' }),
+    h('p', { class: 'ax-callout', text: 'You can already post scores as a guest with just a nickname. Signing in adds your name and picture, keeps your scores with you on any device, and lets you share runs.' }),
+    h('p', { class: 'ax-note', text: 'Sign-in uses Nostr, a free login you own that works across many apps. The arcade never sees or stores your private key: your extension or signer app keeps it and asks before anything is signed.' }),
     E.ext, E.connectBtn, E.connectBox,
     h('label', { class: 'ax-label', for: 'axBunker' }, 'Or paste a bunker:// link from your signer',
       h('span', { class: 'ax-field' }, E.bunker, h('button', { class: 'ax-btn', onclick: connectBunker }, 'CONNECT'))),
-    E.warn, E.signStatus);
+    E.warn, E.signStatus,
+    h('h3', { class: 'ax-sub', text: 'NEW TO NOSTR? GET A FREE ACCOUNT' }),
+    h('p', { class: 'ax-note', text: 'Create an account with one of these, then come back here and choose Signer app or Browser extension.' }),
+    h('div', { class: 'ax-gets' },
+      getLink('https://nsec.app', 'nsec.app', 'Works in any browser, including iPhone. Then choose Signer app.'),
+      getLink('https://apps.apple.com/app/nostash/id6744309333', 'Nostash', 'Safari extension for iPhone and iPad.'),
+      getLink('https://getalby.com', 'Alby', 'Browser extension for desktop.'),
+      getLink('https://github.com/greenart7c3/Amber', 'Amber', 'Signer app for Android.')));
   E.meImg = h('img', { alt: '', referrerpolicy: 'no-referrer' }); E.meImg.hidden = true;
   E.meImg.addEventListener('error', () => { E.meImg.hidden = true; });
   E.meName = h('div', { class: 'ax-nm' }); E.meNpub = h('div', { class: 'ax-mono' }); E.meMethod = h('p', { class: 'ax-note' });
@@ -175,15 +184,19 @@ async function loadBoard() {
     rows = rows.slice(0, 100);
     if (!rows.length) { E.note.textContent = UI.scope === 'follows' ? 'No verified scores from people you follow yet.' : 'No verified scores yet. Be the first.'; return; }
     E.note.textContent = 'Every score here was replayed and checked by the arcade referee.';
-    const profs = await N.fetchProfiles(rows.slice(0, 50).map(r => r.pubkey)).catch(() => new Map());
+    const profs = await N.fetchProfiles(rows.slice(0, 50).filter(r => r.pubkey).map(r => r.pubkey)).catch(() => new Map());
     if (token !== UI.token) return;
     const statDefs = (cfg.boards.find(b => b.id === board) || {}).stats || [];
+    const myGuest = N.guestTag(N.guest().id);
     rows.forEach((r, i) => {
-      const p = profs.get(r.pubkey) || {};
+      const p = r.pubkey ? (profs.get(r.pubkey) || {}) : {};
       const detail = statDefs.filter(([k]) => r.stats[k] !== undefined).map(([k, label]) => `${label} ${fmt(r.stats[k])}`).join(' · ');
-      E.list.append(h('li', { class: me && r.pubkey === me.pubkey ? 'me' : null },
+      const mine = r.pubkey ? !!(me && r.pubkey === me.pubkey) : r.guest === myGuest;
+      const name = r.pubkey ? (p.name || N.shortNpub(r.pubkey)) : r.name;
+      E.list.append(h('li', { class: mine ? 'me' : null },
         h('span', { class: 'ax-rank', text: String(i + 1) }), avatar(p.picture),
-        h('span', { class: 'ax-name' }, p.name || N.shortNpub(r.pubkey), detail ? h('small', { text: detail }) : null),
+        h('span', { class: 'ax-name' }, h('span', { class: 'ax-who' }, name, r.guest ? h('span', { class: 'ax-badge', text: 'GUEST' }) : null),
+          detail ? h('small', { text: detail }) : null),
         h('span', { class: 'ax-pts', text: fmt(r.score) })));
     });
   } catch (e) { if (token === UI.token) E.note.textContent = 'Could not reach the relays. Check your connection and try again.'; }
@@ -192,6 +205,7 @@ async function loadBoard() {
 async function renderAccount() {
   const E = UI.el, me = N.currentSigner();
   E.out.hidden = !!me; E.in.hidden = !me;
+  E.tabAcct.textContent = me ? 'ACCOUNT' : 'SIGN IN';
   if (!me) {
     const ext = N.extensionAvailable();
     E.ext.disabled = !ext;
@@ -309,17 +323,26 @@ export function createArcade(gameId, { rules, preview = false, onOpen, onClose }
   let active = null;   // the run currently being played
   let result = null;   // the game-over panel currently shown
 
+  // Who the next ranked run belongs to: the signed-in Nostr account, or this browser's guest id.
+  function identity() {
+    const me = N.currentSigner();
+    return me ? { kind: 'nostr', key: 'p:' + me.pubkey, who: { pubkey: me.pubkey } }
+      : { kind: 'guest', key: 'guest', who: { guest: N.guest().id } };
+  }
   function tryTicket() {
-    const run = active, me = N.currentSigner();
-    if (!enabled || !run || run.ticket || run.locked || run.pending || !me || !N.refereeReady()) return;
+    const run = active;
+    if (!enabled || !run || run.locked || run.pending || !N.refereeReady()) return;
+    const id = identity();
+    if (run.ticketFor === id.key) return;
     run.pending = true;
-    N.requestTicket(gameId, run.board, me.pubkey)
+    N.requestTicket(gameId, run.board, id.who)
       .then(t => {
-        if (!t || active !== run || run.locked) return;
-        if (run.accept(t.seed)) Object.assign(run, { seed: t.seed, ticket: t.ticket, pubkey: me.pubkey, ranked: true });
+        if (!t || active !== run || run.locked || identity().key !== id.key) return;
+        if (run.accept(t.seed)) Object.assign(run, { seed: t.seed, ticket: t.ticket, ticketFor: id.key, kind: id.kind,
+          pubkey: id.who.pubkey || null, guestId: id.who.guest || null, ranked: true });
       })
       .catch(() => {})
-      .finally(() => { run.pending = false; });
+      .finally(() => { run.pending = false; if (active === run && !run.locked && identity().key !== run.ticketFor) tryTicket(); });
   }
 
   function renderResult() {
@@ -328,14 +351,20 @@ export function createArcade(gameId, { rules, preview = false, onOpen, onClose }
     container.textContent = '';
     if (!enabled) { container.hidden = true; return; }
     container.hidden = false;
+    const me = N.currentSigner();
     const st = h('p', { class: 'ax-status' });
     const post = h('button', { class: 'ax-btn primary' }, 'POST VERIFIED SCORE');
     const share = h('button', { class: 'ax-btn' }, 'SHARE ON NOSTR');
-    const sign = h('button', { class: 'ax-btn', onclick: () => api.openSheet('acct', run.board) }, 'SIGN IN WITH NOSTR');
-    post.hidden = true;
-    container.append(st, h('div', { class: 'ax-btnrow' }, post, share, sign));
-    const me = N.currentSigner();
-    sign.hidden = !!me; share.hidden = !me;
+    const sign = h('button', { class: 'ax-btn', onclick: () => api.openSheet('acct', run.board) }, me ? 'ACCOUNT' : 'SIGN IN');
+    const g = N.guest();
+    const nameIn = h('input', { id: 'axGuestName', type: 'text', maxlength: '24', autocomplete: 'nickname', autocapitalize: 'words', spellcheck: 'false',
+      placeholder: 'Nickname', 'aria-label': 'Nickname for the leaderboard', enterkeyhint: 'send' });
+    nameIn.value = g.name;
+    const guestPost = h('button', { class: 'ax-btn primary' }, 'POST SCORE');
+    const guestForm = h('div', { class: 'ax-guest' }, h('span', { class: 'ax-field' }, nameIn, guestPost));
+    post.hidden = true; guestForm.hidden = true; share.hidden = !me; sign.hidden = !!me;
+    container.append(st, guestForm, h('div', { class: 'ax-btnrow' }, post, share, sign));
+
     share.addEventListener('click', async () => {
       const text = result.shareText(!!run.submitted);
       if (!(await confirmShare(text))) return;
@@ -343,28 +372,51 @@ export function createArcade(gameId, { rules, preview = false, onOpen, onClose }
       try { const n = await N.postNote(text, { game: gameId, url: gameUrl }); status(st, n ? `Shared to ${n} relay${n === 1 ? '' : 's'}.` : 'No relay accepted the note.', n ? 'ok' : 'bad'); }
       catch (e) { status(st, e.message || 'Could not share.', 'bad'); }
     });
+    const posted = (r, label) => {
+      run.submitted = true;
+      if (result && result.run === run) {
+        post.hidden = true; guestForm.hidden = true;
+        status(st, r.relays ? `${label} ✓ Posted to ${r.relays} relay${r.relays === 1 ? '' : 's'}.` : 'Verified ✓ but no relay accepted it. Try again later.', r.relays ? 'ok' : 'bad');
+      }
+    };
     post.addEventListener('click', async () => {
       post.disabled = true;
       status(st, 'Approve the request in your signer. The referee will replay your run.');
-      try {
-        const replay = await result.replay();
-        const r = await N.submitVerified({ game: gameId, board: run.board, ticket: run.ticket, rules, replay, score });
-        run.submitted = true;
-        if (result && result.run === run) { post.hidden = true; status(st, r.relays ? `Verified ✓ Posted to ${r.relays} relay${r.relays === 1 ? '' : 's'}.` : 'Verified ✓ but no relay accepted it. Try again later.', r.relays ? 'ok' : 'bad'); }
-      } catch (e) { post.disabled = false; status(st, e.message || 'Could not post the score.', 'bad'); }
+      try { posted(await N.submitVerified({ game: gameId, board: run.board, ticket: run.ticket, rules, replay: await result.replay(), score }), 'Verified'); }
+      catch (e) { post.disabled = false; status(st, e.message || 'Could not post the score.', 'bad'); }
     });
-    if (!me) { status(st, 'Sign in with Nostr to post verified scores and share your run.'); return; }
+    const postGuest = async () => {
+      const n = N.checkName(nameIn.value);
+      if (!n.ok) { status(st, n.error, 'bad'); nameIn.focus(); return; }
+      N.setGuestName(n.name); nameIn.value = n.name;
+      guestPost.disabled = true; nameIn.disabled = true;
+      status(st, 'The referee is replaying your run…');
+      try { posted(await N.submitGuest({ game: gameId, board: run.board, ticket: run.ticket, rules, replay: await result.replay(), score, name: n.name, guestId: run.guestId }), `Verified as ${n.name} (guest)`); }
+      catch (e) { guestPost.disabled = false; nameIn.disabled = false; status(st, e.message || 'Could not post the score.', 'bad'); }
+    };
+    guestPost.addEventListener('click', postGuest);
+    nameIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); postGuest(); } });
+
     if (run.submitted) { status(st, 'Verified and posted.', 'ok'); return; }
     if (!N.refereeReady()) { status(st, `The verified leaderboard opens once the ${ARCADE_NAME} referee is set up.`); return; }
-    if (!run.ranked || run.pubkey !== me.pubkey) { status(st, 'This run is unranked: it started before you signed in or while the referee was offline.'); return; }
+    if (!run.ranked) { status(st, 'This run is unranked: the referee was offline when it started.'); return; }
     if (!(score > 0)) { status(st, 'Score some points to post a run.'); return; }
-    status(st, 'Checking your verified best…');
-    N.fetchMyBest(gameId, run.board, me.pubkey).then(b => {
+    if (run.kind === 'nostr' && (!me || me.pubkey !== run.pubkey)) {
+      status(st, 'Sign in with the account that started this run to post it.'); sign.hidden = false; return;
+    }
+    status(st, 'Checking your best score…');
+    const who = run.kind === 'nostr' ? { pubkey: run.pubkey } : { guest: run.guestId };
+    N.fetchMyBest(gameId, run.board, who).then(b => {
       if (!result || token !== result.token) return;
-      if (b && b.score >= score) { status(st, `Your verified best is ${fmt(b.score)}. Beat it to post again.`); return; }
-      post.hidden = false;
-      status(st, b ? `New personal best! Your previous verified score was ${fmt(b.score)}.` : 'Post this score to the verified leaderboard.');
-    }).catch(() => { if (result && token === result.token) { post.hidden = false; status(st, 'Post this score to the verified leaderboard.'); } });
+      if (b && b.score >= score) { status(st, `Your verified best${run.kind === 'guest' ? ' as a guest' : ''} is ${fmt(b.score)}. Beat it to post again.`); return; }
+      show(b);
+    }).catch(() => { if (result && token === result.token) show(null); });
+    function show(b) {
+      const pb = b ? `New personal best! Previous: ${fmt(b.score)}. ` : '';
+      if (run.kind === 'nostr') { post.hidden = false; status(st, pb || 'Post this score to the verified leaderboard.'); return; }
+      guestForm.hidden = false;
+      status(st, pb + (me ? 'This run started before you signed in, so it posts as a guest.' : 'Post as a guest with a nickname, or sign in to use your own name and picture.'));
+    }
   }
 
   N.onAuthChange(() => { tryTicket(); renderResult(); });
@@ -378,10 +430,11 @@ export function createArcade(gameId, { rules, preview = false, onOpen, onClose }
     bindAccountButton(btn, nameEl) { bindAccountButton(btn, nameEl, tab => api.openSheet(tab)); },
     // Start a run. `accept(seed)` is called if the referee's seed arrives before play starts;
     // return true after restarting the game with that seed. Call run.lock() when play begins.
+    // Signed-in players get a ticket for their Nostr account; everyone else gets a guest ticket.
     newRun(board, accept) {
       result = null;
-      const run = { game: gameId, board, seed: seedHex(), ticket: null, pubkey: null, ranked: false, locked: false, submitted: false,
-        accept, lock() { this.locked = true; } };
+      const run = { game: gameId, board, seed: seedHex(), ticket: null, ticketFor: null, kind: null, pubkey: null, guestId: null,
+        ranked: false, locked: false, submitted: false, accept, lock() { this.locked = true; } };
       active = run;
       tryTicket();
       return run;

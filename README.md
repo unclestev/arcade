@@ -10,20 +10,24 @@ Browser arcade games with one shared Nostr sign-in and a leaderboard where every
 
 Every game works with touch, keyboard and mouse; Bomber also supports gamepads and the Logitech G29 wheel.
 
-## Sign in once, play everything
+## Play as a guest, or sign in once for everything
 
-The arcade never asks for, sees or stores your private key. Sign in with:
+**No account needed.** Anyone can post a verified score with just a nickname. The referee checks guest runs exactly like everyone else's, and the leaderboard marks them GUEST.
+
+**Signing in** adds your name and picture, keeps your scores with you on any device, and lets you share runs and see scores from people you follow. Sign-in uses Nostr, and the arcade never asks for, sees or stores your private key. Sign in with:
 
 - **A browser extension** (NIP-07): Alby or nos2x on desktop, Nostash in Safari on iPhone/iPad.
 - **A signer app** (NIP-46 Nostr Connect): Amber, nsec.app or any Nostr Connect signer. Scan the code or tap to open, then approve. You can also paste a `bunker://` link.
 
 All games share one origin, so an extension sign-in carries across every game and the hub.
 
+New to Nostr? The sign-in screen links to free signers (nsec.app, Nostash, Alby, Amber). The account is created and kept by the signer, never by the arcade.
+
 ## How scores are verified
 
-1. When a signed-in run starts, the referee hands the game a sealed ticket with a random seed.
+1. When a run starts, the referee hands the game a sealed ticket with a random seed, bound to the player's Nostr account or, for guests, to a random guest id kept in their browser.
 2. Games are deterministic: the seed plus the player's inputs recreate the whole run.
-3. At game over the player taps **Post verified score**. The referee replays the inputs with the game's own rules, computes the score itself, and signs it with the arcade's Nostr key.
+3. At game over the player taps **Post** (guests type a nickname first). The referee replays the inputs with the game's own rules, computes the score itself, and signs it with the arcade's Nostr key.
 4. Leaderboards only show scores signed by the referee, and check every signature.
 
 Faked scores, edited runs, reused tickets and other players' runs all fail. No web game can stop a bot that genuinely plays well; the referee also rejects runs that finish faster than real time.
@@ -33,8 +37,8 @@ Faked scores, edited runs, reused tickets and other players' runs all fail. No w
 Verified scores are NIP-78 app-data events (kind 30078) authored by the referee, one per player per board:
 
 ```
-d      arcade:<game>:<board>:<player pubkey>
-p      <player pubkey>
+d      arcade:<game>:<board>:<player pubkey>      (guests: arcade:<game>:<board>:guest:<guest tag>)
+p      <player pubkey>                            (guests: guest <tag>, name <nickname>)
 t      arcade · <game> · <game>-<board>
 game   <game>          board  <board>
 score  <integer>       rules  <rules version>

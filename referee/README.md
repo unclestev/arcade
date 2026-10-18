@@ -23,8 +23,9 @@ A Cloudflare Worker that replays finished runs for every game in the arcade and 
 |---|---|
 | `GET /` | Setup page (public key once configured) |
 | `GET /games` | Games, boards and rules versions the referee knows |
-| `GET /ticket?game=&board=&pubkey=` | Sealed seed for a ranked run |
-| `POST /verify` | `{ ticket, rules, replay }` with a NIP-98 `Authorization: Nostr …` header; returns the signed score event |
+| `GET /ticket?game=&board=&pubkey=` | Sealed seed for a signed-in player's run |
+| `GET /ticket?game=&board=&guest=` | Sealed seed for a guest's run (32-hex guest id) |
+| `POST /verify` | Players: `{ ticket, rules, replay }` with a NIP-98 `Authorization: Nostr …` header. Guests: `{ ticket, rules, replay, name }`. Returns the signed score event |
 
 ## CPU limits
 
