@@ -24,7 +24,10 @@ export const GAMES = {
     title: 'Dirtbox Rally',
     path: 'dirtbox/',
     cover: 'dirtbox/cover.jpg',
-    blurb: 'Isometric off-road racing with boxy 4x4s, missiles, bombs and jumps over the creek. Finish in the top three or lose a truck.',
-    boards: [{ id: 'classic', label: 'Classic', stats: [['race', 'Race'], ['wins', 'Wins']] }],
+    blurb: 'Off-road racing with boxy 4x4s, missiles, bombs and jumps over the creek. Pixel-art Classic or a 3D Next Gen chase-cam version. Finish in the top three or lose a truck.',
+    boards: [
+      { id: 'classic', label: 'Classic', stats: [['race', 'Race'], ['wins', 'Wins']] },
+      { id: 'nextgen', label: 'Next Gen', stats: [['race', 'Race'], ['wins', 'Wins']] },
+    ],
   },
 };

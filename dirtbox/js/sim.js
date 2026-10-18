@@ -20,7 +20,7 @@ export const LAPS = 3;
 export const START_LIVES = 3;
 export const MAX_UPGRADE = 5;
 export const LETTER_WORD = 'DIRTBOX';
-export const BOARDS = ['classic'];
+export const BOARDS = ['classic', 'nextgen']; // Next Gen: same rules, 3D view, its own leaderboard
 export const POINTS = {
   place: [5000, 3000, 1500, 0], pickup: 100, upgrade: 250, letter: 500, word: 10000,
   missileHit: 1000, bombHit: 750, circuit: 25000,

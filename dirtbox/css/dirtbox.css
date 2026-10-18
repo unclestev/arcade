@@ -189,3 +189,85 @@ body {
 }
 @media (orientation: portrait) and (pointer: coarse) { #rotate { display: block; } }
 @media (prefers-reduced-motion: reduce) { .t-buttons button.on, .t-pause.on { transform: none; } }
+
+/* ---------- Next Gen (3D) ---------- */
+/* The WebGL view fills the stage; the pixel canvas sits on top, transparent, for menus and toasts. */
+.ng3d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; }
+#screen.ng-overlay { background: transparent; box-shadow: none; position: relative; z-index: 1; }
+.ng3d.paused { filter: brightness(.45) saturate(.7); }
+
+.ngh {
+  --ng-ink: #f6f2ff; --ng-dim: #b8b0c8; --ng-acc: #ffc040; --ng-panel: rgba(12, 8, 20, .58);
+  position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden;
+  font: italic 700 16px/1 "Chakra Petch", system-ui, sans-serif; color: var(--ng-ink);
+  text-transform: uppercase; letter-spacing: .02em;
+  --u: clamp(11px, 2.4vmin, 18px);
+  transition: opacity .15s;
+}
+.ngh.paused { opacity: 0; }
+.ngh-panel {
+  position: absolute; background: var(--ng-panel); border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), 0 6px 20px rgba(0, 0, 0, .25);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+.ngh-tl { left: 10px; top: 10px; display: flex; align-items: center; gap: calc(var(--u) * .7); padding: calc(var(--u) * .45) calc(var(--u) * .8); }
+.ngh-pos { font-size: calc(var(--u) * 3.1); line-height: .9; text-shadow: 0 3px 0 rgba(0, 0, 0, .35); }
+.ngh-pos sup { font-size: .38em; vertical-align: top; margin-left: 2px; }
+.ngh-side { display: grid; gap: calc(var(--u) * .22); }
+.ngh-lap { font-size: calc(var(--u) * 1.15); color: var(--ng-dim); }
+.ngh-lap b { color: var(--ng-ink); }
+.ngh-time { font-size: var(--u); font-variant-numeric: tabular-nums; }
+.ngh-lives { font-size: calc(var(--u) * .78); color: var(--ng-dim); }
+.ngh-tc { left: 50%; top: 10px; transform: translateX(-50%); text-align: center; padding: calc(var(--u) * .4) calc(var(--u) * .9) calc(var(--u) * .45); }
+.ngh-score { font-size: calc(var(--u) * 1.5); font-variant-numeric: tabular-nums; letter-spacing: .06em; }
+.ngh-word { margin-top: calc(var(--u) * .25); display: flex; gap: calc(var(--u) * .3); justify-content: center; font-size: var(--u); color: rgba(255, 255, 255, .22); }
+.ngh-word .got { color: #ffd84a; text-shadow: 0 0 10px rgba(255, 200, 60, .6); }
+.ngh-word .next { color: #fff; }
+.ngh-map { right: 10px; top: 10px; width: calc(var(--u) * 7.4); height: calc(var(--u) * 7.4); padding: 0; }
+.ngh-map canvas { width: 100%; height: 100%; display: block; }
+.ngh-bottom { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: grid; justify-items: center; gap: 6px; }
+.ngh-speed { display: flex; align-items: baseline; gap: 4px; text-shadow: 0 2px 6px rgba(0, 0, 0, .55); }
+.ngh-speed b { font-size: calc(var(--u) * 2.2); font-variant-numeric: tabular-nums; min-width: 2.2ch; text-align: right; }
+.ngh-speed span { font-size: calc(var(--u) * .8); color: var(--ng-dim); }
+.ngh-ammo { position: relative; display: flex; gap: calc(var(--u) * .9); padding: calc(var(--u) * .35) calc(var(--u) * .8); }
+.ngh-item { display: flex; align-items: center; gap: 5px; font-size: calc(var(--u) * 1.05); }
+.ngh-item.empty { opacity: .4; }
+.ngh-item.active b { color: var(--ng-acc); }
+.ngh-ico { width: calc(var(--u) * 1.35); height: calc(var(--u) * 1.35); image-rendering: pixelated; border-radius: 2px; }
+
+.ngh-count { position: absolute; left: 50%; top: 20%; transform: translateX(-50%); display: grid; justify-items: center; gap: 8px; opacity: 0; transition: opacity .2s; }
+.ngh-count.on { opacity: 1; }
+.ngh-lights { display: flex; gap: 10px; padding: 8px 12px; background: rgba(12, 8, 20, .75); border-radius: 999px; }
+.ngh-lights i { width: calc(var(--u) * 1.5); height: calc(var(--u) * 1.5); border-radius: 50%; background: #2e2430; box-shadow: inset 0 2px 4px rgba(0, 0, 0, .5); }
+.ngh-lights i.red { background: #ff3a2a; box-shadow: 0 0 16px #ff3a2a; }
+.ngh-lights i.amber { background: #ffc040; box-shadow: 0 0 16px #ffc040; }
+.ngh-lights i.green { background: #50ff70; box-shadow: 0 0 18px #50ff70; }
+.ngh-num { font-size: calc(var(--u) * 5); text-shadow: 0 4px 0 rgba(0, 0, 0, .35); }
+
+.ngh-intro { position: absolute; left: 0; right: 0; top: 30%; display: grid; justify-items: center; gap: 6px; padding: 14px 0;
+  background: linear-gradient(90deg, transparent, rgba(12, 8, 20, .7) 20%, rgba(12, 8, 20, .7) 80%, transparent);
+  opacity: 0; transform: translateX(-30px); transition: opacity .25s, transform .4s; }
+.ngh-intro.on { opacity: 1; transform: none; }
+.ngh-intro span { font-size: calc(var(--u) * .9); color: var(--ng-dim); letter-spacing: .12em; }
+.ngh-intro b { font-size: calc(var(--u) * 2.6); color: var(--ng-acc); text-shadow: 0 3px 0 rgba(0, 0, 0, .4); }
+
+.ngh-big, .ngh-small { position: absolute; left: 0; right: 0; text-align: center; opacity: 0; text-shadow: 0 3px 0 rgba(0, 0, 0, .45), 0 0 24px rgba(0, 0, 0, .35); }
+.ngh-big { top: 30%; font-size: calc(var(--u) * 3.4); }
+.ngh-small { top: 46%; font-size: calc(var(--u) * 1.5); }
+.ngh-big.on, .ngh-small.on { opacity: 1; animation: ngh-pop .35s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes ngh-pop { from { transform: scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
+.ngh-wrong { position: absolute; left: 0; right: 0; top: 56%; text-align: center; font-size: calc(var(--u) * 2); color: #ff5a4a; opacity: 0; text-shadow: 0 3px 0 rgba(0, 0, 0, .45); }
+.ngh-wrong.on { opacity: 1; animation: ngh-blink .5s steps(2) infinite; }
+@keyframes ngh-blink { 50% { opacity: .15; } }
+.ngh-pops { position: absolute; inset: 0; }
+.ngh-pop { position: absolute; left: 0; top: 0; font-size: calc(var(--u) * 1.15); white-space: nowrap; text-shadow: 0 2px 0 rgba(0, 0, 0, .6); will-change: transform; }
+
+/* keep clear of the touch controls on phones */
+@media (pointer: coarse) {
+  .ngh-tl { left: 58px; } /* clear of the touch pause button */
+  .ngh-bottom { bottom: 6px; }
+  .ngh-speed b { font-size: calc(var(--u) * 1.7); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ngh-big.on, .ngh-small.on, .ngh-wrong.on { animation: none; }
+}

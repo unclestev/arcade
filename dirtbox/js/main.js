@@ -28,11 +28,39 @@ const KEY = C.STORAGE_KEY;
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => Number(n).toLocaleString('en-US');
 
-const DEFAULT_SETTINGS = { music: true, sfx: true, autoGas: true, wheelLock: 270, steerFeel: 'smooth', lastScheme: 0 };
+const DEFAULT_SETTINGS = { music: true, sfx: true, autoGas: true, wheelLock: 270, steerFeel: 'smooth', lastScheme: 0, lastBoard: 'classic' };
 G.settings = Object.assign({}, DEFAULT_SETTINGS, U.store.load(KEY + '.settings', {}));
 G.saveSettings = () => U.store.save(KEY + '.settings', G.settings);
-G.hiScore = U.store.load(KEY + '.hi', 0) || 0;
 G.time = 0;
+
+// ---------- editions ----------
+// Classic (pixel art) and Next Gen (3D chase cam) share the race rules; each has its own leaderboard
+// board and high score. ?mode=nextgen opens the game with Next Gen selected.
+G.BOARD_NAMES = { classic: 'Classic', nextgen: 'Next Gen' };
+const HI_KEYS = { classic: KEY + '.hi', nextgen: KEY + '.hi.ng' };
+G.hi = { classic: U.store.load(HI_KEYS.classic, 0) || 0, nextgen: U.store.load(HI_KEYS.nextgen, 0) || 0 };
+const urlMode = new URLSearchParams(location.search).get('mode');
+G.board = urlMode === 'nextgen' || urlMode === 'classic' ? urlMode : (S.BOARDS.includes(G.settings.lastBoard) ? G.settings.lastBoard : 'classic');
+Object.defineProperty(G, 'hiScore', {
+  get: () => G.hi[G.board] || 0,
+  set: (v) => { G.hi[G.board] = v; U.store.save(HI_KEYS[G.board], v); },
+});
+G.setBoard = function (board) {
+  if (!S.BOARDS.includes(board) || G.board === board) return;
+  G.board = board;
+  G.settings.lastBoard = board;
+  G.saveSettings();
+  $('hiTop').textContent = fmt(G.hiScore);
+};
+// The 3D renderer (and three.js) only loads when someone picks Next Gen.
+let ngLoad = null;
+G.loadNextGen = function () {
+  if (!ngLoad) {
+    ngLoad = import('./ng/view3d.js').then((m) => { m.init(); return m; });
+    ngLoad.catch(() => { ngLoad = null; });
+  }
+  return ngLoad;
+};
 
 // ---------- arcade kit: sign-in, ranked runs, leaderboard ----------
 let screenName = '';
@@ -41,7 +69,7 @@ const arcade = createArcade('dirtbox', {
   onOpen: () => { if (screenName === 'race' && !G.screens.race.paused) G.screens.race.pause(); },
 });
 G.modalOpen = () => arcade.isSheetOpen();
-G.openBoard = () => arcade.openSheet('board', 'classic');
+G.openBoard = () => arcade.openSheet('board', G.board);
 arcade.bindAccountButton($('btnAcct'), $('acctName'));
 $('btnBoard').addEventListener('click', () => G.openBoard());
 
@@ -53,21 +81,22 @@ G.newRun = function () {
   G.game = null;
   G.view = null;
   // The kit asks the referee for a sealed seed. Accept it until the game is created with a seed.
-  const r = arcade.newRun('classic', () => run === r && !r.locked && !G.game);
+  const r = arcade.newRun(G.board, () => run === r && !r.locked && !G.game);
+  r.board = G.board;
   Object.assign(r, { segs: [], inputs: [] });
   run = r;
 };
 G.beginGame = function (scheme) {
   if (!run) G.newRun();
   G.scheme = scheme;
-  G.game = S.createGame('classic', run.seed);
+  G.game = S.createGame(run.board, run.seed);
 };
 G.beginRace = function () {
   const game = G.game;
   if (!S.startRace(game)) return;
   if (!run.locked) run.lock(); // play has started: the seed can no longer change
   run.segs.push(0);
-  G.view = new RaceView(game, { scheme: G.scheme });
+  G.view = game.board === 'nextgen' && G.NG ? new G.NG.RaceView3D(game, { scheme: G.scheme }) : new RaceView(game, { scheme: G.scheme });
   G.view.handle(game.ev);
   game.ev.length = 0;
   acc = 0;
@@ -146,7 +175,7 @@ G.showOver = function (on) {
   const game = G.game;
   const score = game.score;
   const best = score > G.hiScore;
-  if (best) { G.hiScore = score; U.store.save(KEY + '.hi', score); }
+  if (best) G.hiScore = score;
   $('overScore').textContent = fmt(score);
   $('stRace').textContent = game.raceNo + 1;
   $('stWins').textContent = game.wins;
@@ -160,8 +189,8 @@ G.showOver = function (on) {
   const thisRun = run, raceNo = game.raceNo + 1;
   arcade.showResult($('overNostr'), {
     run: thisRun, score, stats: { race: raceNo, wins: game.wins },
-    replay: () => encodeReplay('classic', thisRun.seed, thisRun.segs, Uint32Array.from(thisRun.inputs)),
-    shareText: (verified) => `I scored ${fmt(score)} in Dirtbox Rally${verified ? ' (verified)' : ''}: reached race ${raceNo} with ${game.wins} win${game.wins === 1 ? '' : 's'}.\n\nPlay: ${arcade.gameUrl}\n#dirtboxrally`,
+    replay: () => encodeReplay(thisRun.board, thisRun.seed, thisRun.segs, Uint32Array.from(thisRun.inputs)),
+    shareText: (verified) => `I scored ${fmt(score)} in Dirtbox Rally ${G.BOARD_NAMES[thisRun.board]}${verified ? ' (verified)' : ''}: reached race ${raceNo} with ${game.wins} win${game.wins === 1 ? '' : 's'}.\n\nPlay: ${arcade.gameUrl}\n#dirtboxrally`,
   });
   setTimeout(() => { try { $('btnAgain').focus({ preventScroll: true }); } catch (e) { /* ignore */ } }, 50);
 };
@@ -176,6 +205,7 @@ G.go = function (name, arg) {
   G.input.clearPressed();
   if (screen.enter) screen.enter(arg);
   updateTouchUI();
+  if (G.NG) G.NG.show(name === 'race' && !!(G.view && G.view.is3D));
 };
 G.currentScreen = () => screenName;
 

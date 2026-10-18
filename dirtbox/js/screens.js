@@ -213,15 +213,32 @@ const deviceHint = (kb, touch, wheel, pad) => {
   return d === 'touch' ? touch : d === 'wheel' ? wheel : d === 'pad' ? pad : kb;
 };
 // ======================= TITLE =======================
+// Next Gen needs the 3D module; it loads on first pick (a moment on a slow connection).
+function startEdition(board) {
+  G.setBoard(board);
+  if (board !== 'nextgen') { G.go('select'); return; }
+  if (S.title.loading) return;
+  S.title.loading = true;
+  G.loadNextGen().then(() => {
+    S.title.loading = false;
+    if (G.currentScreen() === 'title') G.go('select');
+  }, (err) => {
+    S.title.loading = false;
+    console.error('Next Gen failed to start:', err);
+    G.toast(err && err.webgl === false ? 'NEXT GEN NEEDS WEBGL' : 'NEXT GEN COULD NOT LOAD');
+    G.setBoard('classic');
+  });
+}
 S.title = {
   enter() {
-    this.sel = 0; this.t = 0; this.idle = 0;
+    this.sel = G.board === 'nextgen' ? 1 : 0; this.t = 0; this.idle = 0; this.loading = false;
     G.audio.music('title');
     G.showOver(false);
   },
   items() {
     const list = [
-      { label: 'START GAME', action: () => G.go('select') },
+      { label: 'CLASSIC', action: () => startEdition('classic'), board: 'classic' },
+      { label: 'NEXT GEN', action: () => startEdition('nextgen'), board: 'nextgen' },
       { label: 'LEADERBOARD', action: () => G.openBoard() },
       { label: 'OPTIONS', action: () => G.go('options', { back: 'title' }) },
     ];
@@ -231,12 +248,14 @@ S.title = {
   update(dt) {
     this.t += dt; this.idle += dt;
     const I = In();
-    if (G.modalOpen()) { this.idle = 0; return; }
-    if (I.pressed('start') && !I.pressed('confirm')) { G.go('select'); return; }
+    if (G.modalOpen() || this.loading) { this.idle = 0; return; }
+    if (I.pressed('start') && !I.pressed('confirm')) { startEdition(G.board); return; }
     const items = this.items();
     if (this.sel >= items.length) this.sel = 0;
     const before = this.sel;
     menuInput(this, items, null);
+    // highlighting an edition picks it, so the leaderboard and hi score follow
+    if (items[this.sel] && items[this.sel].board) G.setBoard(items[this.sel].board);
     if (before !== this.sel || I.anyPressed()) this.idle = 0;
     if (this.idle > 20) G.go('demo');
   },
@@ -245,11 +264,14 @@ S.title = {
     const lg = logo();
     const bob = Math.round(Math.sin(this.t * 2) * 1.5);
     ctx.drawImage(lg, Math.round(VW / 2 - lg.width / 2), 14 + bob);
-    T(ctx, C.EDITION + ' EDITION', VW / 2, 14 + lg.height + 2, { color: '#7cf0e0', align: 'center', outline: DARK });
+    const ng = G.board === 'nextgen';
+    T(ctx, (ng ? 'NEXT GEN' : 'CLASSIC') + ' EDITION', VW / 2, 14 + lg.height + 2, { color: ng ? '#ff9a30' : '#7cf0e0', align: 'center', outline: DARK });
     T(ctx, 'HI ' + U.pad(G.hiScore, 7), VW / 2, 3, { color: '#ffffff', align: 'center', shadow: DARK });
-    menuDraw(ctx, this, this.items(), VW / 2, 112, { w: 120 });
-    if (Math.floor(this.t * 2) % 2 === 0) {
-      T(ctx, deviceHint('PRESS ENTER', 'TAP START GAME', 'PRESS GAS OR X', 'PRESS START'), VW / 2, VH - 12, { color: '#ffe060', align: 'center', outline: DARK });
+    menuDraw(ctx, this, this.items(), VW / 2, 109, { w: 120 });
+    if (this.loading) {
+      T(ctx, 'LOADING 3D...', VW / 2, VH - 12, { color: '#ff9a30', align: 'center', outline: DARK });
+    } else if (Math.floor(this.t * 2) % 2 === 0) {
+      T(ctx, deviceHint('PRESS ENTER', 'TAP AN EDITION', 'PRESS GAS OR X', 'PRESS START'), VW / 2, VH - 12, { color: '#ffe060', align: 'center', outline: DARK });
     }
     if (In().wheel && !In().wheel.calibrated) T(ctx, 'WHEEL FOUND', 4, 3, { color: '#7cf0e0', shadow: DARK });
     fsIcon(ctx);
@@ -387,7 +409,7 @@ S.race = {
   render(ctx) {
     const v = G.view;
     v.render(ctx);
-    G.hud.draw(ctx, v, G.game);
+    if (!v.is3D) G.hud.draw(ctx, v, G.game);
     if (this.paused) {
       ctx.fillStyle = 'rgba(10,6,18,0.6)';
       ctx.fillRect(0, 0, VW, VH);

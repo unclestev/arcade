@@ -8,7 +8,7 @@ Browser arcade games with one shared Nostr sign-in and a leaderboard where every
 |---|---|---|
 | **Bomber** — catch Sparky's falling bombs in three water buckets. Atari-style Classic mode and a modern Next Gen remake. | Classic, Next Gen | [/arcade/bomber/](https://unclestev.github.io/arcade/bomber/) |
 | **Bomber: Bitcoin Edition** — Satoshi drops bitcoins off a mining rig; stack them in cold wallets before the price crashes. Next Gen rules with its own look and leaderboard. | Bitcoin | [/arcade/bomber/?mode=bitcoin](https://unclestev.github.io/arcade/bomber/?mode=bitcoin) |
-| **Dirtbox Rally** — isometric off-road racing with boxy 4x4s, missiles, bombs, upgrades and jumps over the creek. Eight tracks per circuit; finish in the top three or lose a truck. | Classic | [/arcade/dirtbox/](https://unclestev.github.io/arcade/dirtbox/) |
+| **Dirtbox Rally** — off-road racing with boxy 4x4s, missiles, bombs, upgrades and jumps over the creek. Pixel-art isometric Classic or a 3D chase-cam Next Gen (same races, its own leaderboard). Eight tracks per circuit; finish in the top three or lose a truck. | Classic, Next Gen | [/arcade/dirtbox/](https://unclestev.github.io/arcade/dirtbox/) |
 
 Every game works with touch, keyboard and mouse; Bomber and Dirtbox Rally also support gamepads and the Logitech G29 wheel (Dirtbox Rally has a wheel setup wizard for steering, pedals and buttons).
 

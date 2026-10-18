@@ -202,14 +202,18 @@ function crateFrames(type) {
 
 // ---------- Letters ----------
 const letterCache = {};
-function letterFrames(ch) {
-  if (letterCache[ch]) return letterCache[ch];
+function buildLetter(ch) {
   const rows = G.font.glyphRows(ch) || G.font.glyphRows('?');
   const v = makeVox(5, 2, 7);
   const front = color(v, '#f8d030'), back = color(v, '#c08a10');
   for (let r = 0; r < 7; r++) for (let x = 0; x < 5; x++) {
     if (rows[r][x] === '#') { set(v, x, 0, 6 - r, front); set(v, x, 1, 6 - r, back); }
   }
+  return v;
+}
+function letterFrames(ch) {
+  if (letterCache[ch]) return letterCache[ch];
+  const v = buildLetter(ch);
   letterCache[ch] = [];
   for (let i = 0; i < SPIN; i++) letterCache[ch].push(render(v, (i / SPIN) * U.TAU, { flat: true }));
   return letterCache[ch];
@@ -217,8 +221,7 @@ function letterFrames(ch) {
 
 // ---------- Bomb ----------
 let bombSprite = null;
-function bomb() {
-  if (bombSprite) return bombSprite;
+function buildBomb() {
   const v = makeVox(7, 7, 8);
   const body = color(v, '#2c2c38'), hi = color(v, '#7a7a90'), fuse = color(v, '#a07040');
   for (let z = 0; z < 6; z++) for (let y = 0; y < 7; y++) for (let x = 0; x < 7; x++) {
@@ -227,7 +230,10 @@ function bomb() {
   }
   set(v, 2, 2, 5, hi);
   set(v, 3, 3, 6, fuse); set(v, 4, 3, 7, fuse);
-  bombSprite = render(v, 0.6);
+  return v;
+}
+function bomb() {
+  if (!bombSprite) bombSprite = render(buildBomb(), 0.6);
   return bombSprite;
 }
 
@@ -428,3 +434,12 @@ function shadow(rx, ry) {
 }
 
 G.SPR = { SCHEMES, ITEMS, ICONS, ANGLES, SPIN, truckFrames, crateFrames, letterFrames, bomb, decor, shadow, angleIndex, render, buildTruck };
+// Raw voxel models (for the Next Gen 3D view): { L, W, H, data, pal }, x = length (front at +x), y = width, z = up.
+G.SPR.vox = {
+  truck: (i) => buildTruck(SCHEMES[i]),
+  crate: buildCrate,
+  letter: buildLetter,
+  bomb: buildBomb,
+  decor: (type, variant) => DECOR[type](variant || 0),
+  get: get,
+};

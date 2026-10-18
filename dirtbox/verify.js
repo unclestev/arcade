@@ -22,7 +22,7 @@ export default {
   id: 'dirtbox',
   title: 'Dirtbox Rally',
   rules: RULES,
-  boards: { classic: 'Classic' },
+  boards: { classic: 'Classic', nextgen: 'Next Gen' },
   deferred: true,
 
   // Full check: replay every frame. `seed` comes from the referee's sealed ticket.
