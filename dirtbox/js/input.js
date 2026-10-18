@@ -97,7 +97,7 @@ function stickSteer(nx, ny) {
   const fade = Math.min(1, (r - STICK_DEAD) / STICK_FADE);
   return (nx < 0 ? -1 : 1) * amount * fade;
 }
-// Knob follows the finger (held to the rim); the arc shows the steering amount.
+// Knob follows the finger, kept inside the ring.
 function drawTouchSteer() {
   const el = touch.el;
   if (!el) return;
@@ -109,9 +109,8 @@ function drawTouchSteer() {
     kx = touch.vec.x * k; ky = touch.vec.y * k;
   }
   el.classList.toggle('active', on);
-  el.style.setProperty('--kx', (kx * 50).toFixed(2) + '%');
-  el.style.setProperty('--ky', (ky * 50).toFixed(2) + '%');
-  el.dataset.pct = on ? Math.round(Math.abs(touch.steer) * 100) + '%' : '';
+  el.style.setProperty('--kx', (kx * 31).toFixed(2) + '%');
+  el.style.setProperty('--ky', (ky * 31).toFixed(2) + '%');
   el.dataset.dir = touch.steer < -0.02 ? 'left' : touch.steer > 0.02 ? 'right' : '';
 }
 

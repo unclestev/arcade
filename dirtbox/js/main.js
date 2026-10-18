@@ -252,6 +252,16 @@ G.input.onKeyDown = (e) => {
 };
 addEventListener('pointerdown', () => { G.audio.unlock(); G.audio.resumePending(); }, { passive: true });
 
+// Phones: no text selection, Look Up / Touch to Search, long-press menus or double-tap zoom on the
+// game. The kit's sign-in and leaderboard sheets (.ax-modal) keep normal behaviour so keys can be copied.
+const inKit = (t) => !!(t && t.closest && t.closest('.ax-modal, input, textarea'));
+for (const type of ['selectstart', 'contextmenu', 'dblclick', 'gesturestart']) {
+  document.addEventListener(type, (e) => { if (!inKit(e.target)) e.preventDefault(); }, { passive: false });
+}
+// Cancelling touchstart on the game screen and touch controls stops tap-to-search and double-tap zoom
+// at the source; the game itself only listens to pointer events, which still fire.
+for (const el of [canvas, touchUI]) el.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+
 addEventListener('gamepadconnected', (e) => {
   const isWheel = G.input.isWheelId(e.gamepad.id);
   G.toast((isWheel ? 'WHEEL' : 'GAMEPAD') + ' CONNECTED');
