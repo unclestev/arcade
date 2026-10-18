@@ -31,15 +31,15 @@ const I = {
 
 // Steering feel (Options > STEERING). Shapes only what the player sends; the race rules and
 // replays are unchanged, so this needs no RULES bump.
-//   keys / D-pad: a press starts as a small nudge (start) and builds to full lock at `rise` per second,
+//   keys / D-pad: a press starts at `start` and builds to full lock at `rise` per second,
 //                 then recentres at `fall` per second when released
-//   touch pad:    full lock `range` of the pad's width either side of centre, with a small dead zone
-//   touch + stick: expo curve, so small movements give fine corrections and the ends give full lock
-// SHARP is the original behaviour: keys snap to full lock, touch and stick are linear.
+//   gamepad stick: light expo curve for finer corrections near centre
+// SHARP is the original behaviour: keys snap to full lock, the stick is linear.
+// The touch joystick is angle-based and the same in every setting (see stickSteer).
 const FEEL = {
-  smooth: { start: 0.2, rise: 2.2, fall: 9, range: 0.42, dead: 0.06, expo: 0.55 },
-  medium: { start: 0.35, rise: 4, fall: 12, range: 0.38, dead: 0.05, expo: 0.3 },
-  sharp: { start: 1, rise: 1e6, fall: 1e6, range: 0.3, dead: 0, expo: 0 },
+  smooth: { start: 0.4, rise: 6, fall: 14, expo: 0.25 },
+  medium: { start: 0.6, rise: 10, fall: 20, expo: 0.12 },
+  sharp: { start: 1, rise: 1e6, fall: 1e6, expo: 0 },
 };
 I.STEER_FEELS = ['smooth', 'medium', 'sharp'];
 const feel = () => FEEL[I.settings.steerFeel] || FEEL.smooth;
@@ -62,7 +62,7 @@ const keysDown = new Set();
 const queued = new Set();
 let held = {}, prev = {}, pressed = {}, latched = {};
 const repeatT = {};
-const touch = { steer: 0, rel: null, held: {}, el: null };
+const touch = { steer: 0, vec: null, held: {}, el: null };
 const pedalSeen = {};
 let padPrevHeld = {};
 
@@ -81,27 +81,38 @@ function onKey(e, down) {
 }
 window.addEventListener('keydown', (e) => onKey(e, true));
 window.addEventListener('keyup', (e) => onKey(e, false));
-window.addEventListener('blur', () => { keysDown.clear(); touch.held = {}; touch.steer = 0; touch.rel = null; digSteer = 0; });
+window.addEventListener('blur', () => { keysDown.clear(); touch.held = {}; touch.steer = 0; touch.vec = null; digSteer = 0; drawTouchSteer(); });
 
 // ---------- touch controls ----------
-// Finger position on the pad -> steer -1..1 (using the current steering feel).
-function touchSteer(rel) {
-  const f = feel();
-  const x = U.clamp((rel - 0.5) / f.range, -1, 1);
-  const a = Math.max(0, Math.abs(x) - f.dead) / (1 - f.dead);
-  return curve(x < 0 ? -a : a, f);
+// Touch joystick: the knob's angle sets the steering amount. Straight left or right is full lock,
+// and it falls off evenly to zero as the knob moves round to straight up or down.
+// nx, ny: finger offset from the stick centre in stick radii (y down).
+const STICK_DEAD = 0.18;  // inside this radius: no steering
+const STICK_FADE = 0.17;  // then steering fades in over this much radius (no jitter near centre)
+function stickSteer(nx, ny) {
+  const r = Math.sqrt(nx * nx + ny * ny);
+  if (r <= STICK_DEAD) return 0;
+  const tilt = Math.atan2(Math.abs(ny), Math.abs(nx)) / (Math.PI / 2); // 0 = level, 1 = straight up/down
+  const amount = 1 - tilt;
+  const fade = Math.min(1, (r - STICK_DEAD) / STICK_FADE);
+  return (nx < 0 ? -1 : 1) * amount * fade;
 }
-// Knob under the finger and a bar showing how much steering that position gives.
+// Knob follows the finger (held to the rim); the arc shows the steering amount.
 function drawTouchSteer() {
   const el = touch.el;
   if (!el) return;
-  const on = touch.rel !== null;
-  const s = touch.steer;
+  const on = touch.vec !== null;
+  let kx = 0, ky = 0;
+  if (on) {
+    const r = Math.sqrt(touch.vec.x * touch.vec.x + touch.vec.y * touch.vec.y);
+    const k = r > 1 ? 1 / r : 1;
+    kx = touch.vec.x * k; ky = touch.vec.y * k;
+  }
   el.classList.toggle('active', on);
-  el.dataset.dir = s < -0.04 ? 'left' : s > 0.04 ? 'right' : '';
-  el.style.setProperty('--knob', (on ? U.clamp(touch.rel, 0, 1) * 100 : 50) + '%');
-  el.style.setProperty('--bar-l', (50 + Math.min(0, s) * 50) + '%');
-  el.style.setProperty('--bar-w', (Math.abs(s) * 50) + '%');
+  el.style.setProperty('--kx', (kx * 50).toFixed(2) + '%');
+  el.style.setProperty('--ky', (ky * 50).toFixed(2) + '%');
+  el.dataset.pct = on ? Math.round(Math.abs(touch.steer) * 100) + '%' : '';
+  el.dataset.dir = touch.steer < -0.02 ? 'left' : touch.steer > 0.02 ? 'right' : '';
 }
 
 I.bindTouch = function (root) {
@@ -110,8 +121,9 @@ I.bindTouch = function (root) {
   touch.el = steerEl;
   const setSteerFrom = (e) => {
     const r = steerEl.getBoundingClientRect();
-    touch.rel = (e.clientX - r.left) / r.width;
-    touch.steer = touchSteer(touch.rel);
+    const rad = r.width / 2;
+    touch.vec = { x: (e.clientX - r.left - rad) / rad, y: (e.clientY - r.top - r.height / 2) / rad };
+    touch.steer = stickSteer(touch.vec.x, touch.vec.y);
     drawTouchSteer();
   };
   root.addEventListener('pointerdown', (e) => {
@@ -143,7 +155,7 @@ I.bindTouch = function (root) {
     ptr.delete(e.pointerId);
     if (act === 'steer') {
       touch.steer = 0;
-      touch.rel = null;
+      touch.vec = null;
       drawTouchSteer();
     } else {
       touch.held[act] = false;

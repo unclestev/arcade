@@ -110,25 +110,38 @@ body {
 /* ---------- touch controls ---------- */
 #touch { position: fixed; inset: 0; pointer-events: none; z-index: 4; }
 #touch > * { pointer-events: auto; }
-.t-steer {
+.t-stick {
   position: absolute;
-  left: calc(env(safe-area-inset-left, 0px) + 14px);
+  left: calc(env(safe-area-inset-left, 0px) + 18px);
   bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
-  width: max(180px, 42vmin);
-  height: max(82px, 21vmin);
-  display: flex;
+  width: max(130px, 36vmin);
+  aspect-ratio: 1;
+  border-radius: 50%;
   border: 3px solid var(--bezel);
   background: rgba(42, 30, 62, .55);
   box-shadow: inset 3px 3px 0 rgba(255, 255, 255, .08), inset -3px -3px 0 rgba(0, 0, 0, .3);
   touch-action: none;
 }
-.t-steer span { flex: 1; display: grid; place-items: center; font: 22px/1 var(--display); color: rgba(242, 236, 255, .55); }
-.t-steer span.l { border-right: 2px dashed rgba(20, 14, 26, .6); }
-.t-steer[data-dir="left"] .l, .t-steer[data-dir="right"] .r { color: var(--accent); background: rgba(255, 224, 96, .14); }
-.t-steer .t-bar, .t-steer .t-knob { position: absolute; pointer-events: none; opacity: 0; }
-.t-steer .t-bar { bottom: 5px; height: 6px; left: var(--bar-l, 50%); width: var(--bar-w, 0%); background: var(--accent); }
-.t-steer .t-knob { top: 6px; bottom: 6px; width: 8px; left: calc(var(--knob, 50%) - 4px); background: rgba(242, 236, 255, .85); border: 2px solid var(--bezel); }
-.t-steer.active .t-bar, .t-steer.active .t-knob { opacity: .9; }
+/* full-lock line across the middle, zero-steer line top to bottom */
+.t-stick .t-guide { position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent calc(50% - 1px), rgba(242, 236, 255, .18) calc(50% - 1px), rgba(242, 236, 255, .18) calc(50% + 1px), transparent calc(50% + 1px)),
+    linear-gradient(0deg, transparent calc(50% - 2px), rgba(255, 224, 96, .35) calc(50% - 2px), rgba(255, 224, 96, .35) calc(50% + 2px), transparent calc(50% + 2px)); }
+.t-stick .t-knob {
+  position: absolute; pointer-events: none;
+  width: 38%; aspect-ratio: 1; border-radius: 50%;
+  left: calc(50% + var(--kx, 0%)); top: calc(50% + var(--ky, 0%));
+  transform: translate(-50%, -50%);
+  background: rgba(242, 236, 255, .6);
+  border: 3px solid var(--bezel);
+  box-shadow: inset 2px 2px 0 rgba(255, 255, 255, .35), inset -2px -2px 0 rgba(0, 0, 0, .3);
+}
+.t-stick.active .t-knob { background: var(--accent); }
+.t-stick::after {
+  content: attr(data-pct);
+  position: absolute; left: 0; right: 0; top: -16px; text-align: center;
+  font: 10px/1 var(--display); color: var(--accent); pointer-events: none;
+}
 .t-buttons {
   position: absolute;
   right: calc(env(safe-area-inset-right, 0px) + 14px);

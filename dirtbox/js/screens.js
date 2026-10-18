@@ -557,7 +557,7 @@ const PAGES = [
   ['KEYBOARD', [['STEER', 'LEFT/RIGHT OR A/D - HOLD TO TURN MORE'], ['GAS', 'UP OR W'], ['BRAKE/REVERSE', 'DOWN OR S'], ['MISSILE', 'SPACE, J OR Z'], ['BOMB', 'K OR X'], ['NITRO', 'L, C OR SHIFT'], ['PAUSE', 'ESC OR P'], ['START', 'ENTER OR 1'], ['FULLSCREEN', 'F'], ['MUSIC ON/OFF', 'M']]],
   ['LOGITECH G29', [['STEER', 'WHEEL'], ['GAS / BRAKE', 'PEDALS'], ['MISSILE', 'X OR RIGHT PADDLE'], ['BOMB', 'CIRCLE OR LEFT PADDLE'], ['NITRO', 'SQUARE, TRIANGLE OR R2'], ['PAUSE / START', 'OPTIONS'], ['MENUS', 'TURN WHEEL / D-PAD'], ['SELECT / BACK', 'GAS / BRAKE PEDAL'], ['', 'RUN WHEEL SETUP TO REMAP']]],
   ['GAMEPAD', [['STEER', 'LEFT STICK OR D-PAD (HOLD)'], ['GAS', 'RT OR A'], ['BRAKE', 'LT OR X'], ['MISSILE', 'B'], ['BOMB', 'Y'], ['NITRO', 'LB OR RB'], ['PAUSE', 'START']]],
-  ['TOUCH', [['STEER', 'LEFT PAD - SLIDE FARTHER TO TURN MORE'], ['GAS', 'AUTO (OR GAS BUTTON)'], ['BRAKE', 'BRAKE BUTTON'], ['MISSILE', 'MISSILE BUTTON'], ['BOMB', 'BOMB BUTTON'], ['NITRO', 'NITRO BUTTON'], ['PAUSE', 'II BUTTON (TOP)'], ['MENUS', 'TAP ITEMS']]],
+  ['TOUCH', [['STEER', 'STICK: SIDE = FULL, UP/DOWN = LESS'], ['GAS', 'AUTO (OR GAS BUTTON)'], ['BRAKE', 'BRAKE BUTTON'], ['MISSILE', 'MISSILE BUTTON'], ['BOMB', 'BOMB BUTTON'], ['NITRO', 'NITRO BUTTON'], ['PAUSE', 'II BUTTON (TOP)'], ['MENUS', 'TAP ITEMS']]],
 ];
 S.controls = {
   enter(arg) { this.arg = arg || {}; this.page = { touch: 3, wheel: 1, pad: 2 }[In().device] || 0; this.t = 0; },
