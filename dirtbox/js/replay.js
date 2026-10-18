@@ -48,6 +48,18 @@ export async function encodeReplay(board, seed, segs, inputs) {
   return { v: 1, board, seed, segs: segs.slice(), u: toB64(packed) };
 }
 
+// Cheap structural check for the referee's quick path: decompresses (natively) and checks the size,
+// without decoding every frame. The full replay check happens later in decodeReplay + runReplay.
+export async function replayShape(r) {
+  if (!r || r.v !== 1 || typeof r.u !== 'string' || !Array.isArray(r.segs)) throw new Error('bad replay');
+  if (r.u.length > MAX_RAW_BYTES || r.segs.length > 2000) throw new Error('replay too large');
+  const total = r.segs.reduce((a, b) => a + b, 0);
+  if (!r.segs.every(x => Number.isInteger(x) && x >= 0) || total > MAX_TICKS) throw new Error('replay too long');
+  const raw = await pipe(fromB64(r.u), new DecompressionStream('deflate-raw'), MAX_RAW_BYTES);
+  if (raw.length !== total * 3) throw new Error('input count mismatch');
+  return { segs: r.segs, ticks: total };
+}
+
 export async function decodeReplay(r) {
   if (!r || r.v !== 1 || typeof r.u !== 'string' || !Array.isArray(r.segs)) throw new Error('bad replay');
   if (r.u.length > MAX_RAW_BYTES || r.segs.length > 2000) throw new Error('replay too large');

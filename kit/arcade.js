@@ -16,6 +16,7 @@ import qrcode from './vendor/qrcode.js';
 
 export { N as nostr };
 const fmt = n => Number(n).toLocaleString('en-US');
+const PENDING_TEXT = 'Posted ✓ The referee is replaying your run. It shows as PENDING on the leaderboard for a few minutes, then turns verified.';
 const seedHex = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
 
 function h(tag, props, ...kids) {
@@ -183,7 +184,9 @@ async function loadBoard() {
     if (UI.scope === 'follows') { const f = await N.fetchFollows(me.pubkey); if (token !== UI.token) return; rows = rows.filter(r => f.has(r.pubkey)); }
     rows = rows.slice(0, 100);
     if (!rows.length) { E.note.textContent = UI.scope === 'follows' ? 'No verified scores from people you follow yet.' : 'No verified scores yet. Be the first.'; return; }
-    E.note.textContent = 'Every score here was replayed and checked by the arcade referee.';
+    E.note.textContent = rows.some(r => r.pending)
+      ? 'Every score here was replayed and checked by the arcade referee. PENDING scores passed quick checks and are waiting for their full replay.'
+      : 'Every score here was replayed and checked by the arcade referee.';
     const profs = await N.fetchProfiles(rows.slice(0, 50).filter(r => r.pubkey).map(r => r.pubkey)).catch(() => new Map());
     if (token !== UI.token) return;
     const statDefs = (cfg.boards.find(b => b.id === board) || {}).stats || [];
@@ -195,7 +198,8 @@ async function loadBoard() {
       const name = r.pubkey ? (p.name || N.shortNpub(r.pubkey)) : r.name;
       E.list.append(h('li', { class: mine ? 'me' : null },
         h('span', { class: 'ax-rank', text: String(i + 1) }), avatar(p.picture),
-        h('span', { class: 'ax-name' }, h('span', { class: 'ax-who' }, name, r.guest ? h('span', { class: 'ax-badge', text: 'GUEST' }) : null),
+        h('span', { class: 'ax-name' }, h('span', { class: 'ax-who' }, name, r.guest ? h('span', { class: 'ax-badge', text: 'GUEST' }) : null,
+          r.pending ? h('span', { class: 'ax-badge pending', text: 'PENDING', title: 'Posted; the referee is still replaying this run.' }) : null),
           detail ? h('small', { text: detail }) : null),
         h('span', { class: 'ax-pts', text: fmt(r.score) })));
     });
@@ -366,7 +370,7 @@ export function createArcade(gameId, { rules, preview = false, onOpen, onClose }
     container.append(st, guestForm, h('div', { class: 'ax-btnrow' }, post, share, sign));
 
     share.addEventListener('click', async () => {
-      const text = result.shareText(!!run.submitted);
+      const text = result.shareText(!!run.submitted && !run.pending);
       if (!(await confirmShare(text))) return;
       status(st, 'Approve the note in your signer…');
       try { const n = await N.postNote(text, { game: gameId, url: gameUrl }); status(st, n ? 'Shared to Nostr ✓' : "Couldn't share right now. Try again in a minute.", n ? 'ok' : 'bad'); }
@@ -376,13 +380,14 @@ export function createArcade(gameId, { rules, preview = false, onOpen, onClose }
     const posted = (r, label) => {
       if (!r.relays) { status(st, "Your run checked out, but the score couldn't be saved right now. Try again in a minute.", 'bad'); return false; }
       run.submitted = true;
-      if (result && result.run === run) { post.hidden = true; guestForm.hidden = true; status(st, `${label} ✓ You're on the leaderboard.`, 'ok'); }
+      run.pending = !!r.pending;
+      if (result && result.run === run) { post.hidden = true; guestForm.hidden = true; status(st, r.pending ? PENDING_TEXT : `${label} ✓ You're on the leaderboard.`, 'ok'); }
       return true;
     };
     post.addEventListener('click', async () => {
       post.disabled = true;
       status(st, 'Approve the request in your signer. The referee will replay your run.');
-      try { if (!posted(await N.submitVerified({ game: gameId, board: run.board, ticket: run.ticket, rules, replay: await result.replay(), score }), 'Verified')) post.disabled = false; }
+      try { if (!posted(await N.submitVerified({ game: gameId, board: run.board, ticket: run.ticket, rules, replay: await result.replay(), score, stats: result.stats }), 'Verified')) post.disabled = false; }
       catch (e) { post.disabled = false; status(st, e.message || 'Could not post the score.', 'bad'); }
     });
     const postGuest = async () => {
@@ -391,13 +396,13 @@ export function createArcade(gameId, { rules, preview = false, onOpen, onClose }
       N.setGuestName(n.name); nameIn.value = n.name;
       guestPost.disabled = true; nameIn.disabled = true;
       status(st, 'The referee is replaying your run…');
-      try { if (!posted(await N.submitGuest({ game: gameId, board: run.board, ticket: run.ticket, rules, replay: await result.replay(), score, name: n.name, guestId: run.guestId }), `Verified as ${n.name}`)) { guestPost.disabled = false; nameIn.disabled = false; } }
+      try { if (!posted(await N.submitGuest({ game: gameId, board: run.board, ticket: run.ticket, rules, replay: await result.replay(), score, stats: result.stats, name: n.name, guestId: run.guestId }), `Verified as ${n.name}`)) { guestPost.disabled = false; nameIn.disabled = false; } }
       catch (e) { guestPost.disabled = false; nameIn.disabled = false; status(st, e.message || 'Could not post the score.', 'bad'); }
     };
     guestPost.addEventListener('click', postGuest);
     nameIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); postGuest(); } });
 
-    if (run.submitted) { status(st, "Verified ✓ You're on the leaderboard.", 'ok'); return; }
+    if (run.submitted) { status(st, run.pending ? PENDING_TEXT : "Verified ✓ You're on the leaderboard.", 'ok'); return; }
     if (!N.refereeReady()) { status(st, `The verified leaderboard opens once the ${ARCADE_NAME} referee is set up.`); return; }
     if (!run.ranked) { status(st, 'This run is unranked: the referee was offline when it started.'); return; }
     if (!(score > 0)) { status(st, 'Score some points to post a run.'); return; }
@@ -440,8 +445,9 @@ export function createArcade(gameId, { rules, preview = false, onOpen, onClose }
       return run;
     },
     // Game-over panel: posting a verified score, sharing, or signing in.
-    showResult(container, { run, score, replay, shareText }) {
-      result = { container, run, score, replay, shareText, token: 0 };
+    // stats: the run's stats, sent along for games the referee checks later (see referee/README.md).
+    showResult(container, { run, score, stats, replay, shareText }) {
+      result = { container, run, score, stats, replay, shareText, token: 0 };
       renderResult();
     },
   };

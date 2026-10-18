@@ -7,6 +7,9 @@
 //                                       browser, and if it checks out, signs the score with the referee key.
 // 3. GET  /games                        lists the games, boards and rules versions the referee knows.
 // 4. GET  /                             setup page: shows the referee's public key (never the secret).
+// 5. GET  /pending, POST /resolve       for the verifier job only (VERIFIER_TOKEN): games marked `deferred`
+//                                       are quick-checked at /verify, stored in the RUNS KV store and signed as
+//                                       pending; the job replays them later and /resolve signs the final result.
 //
 // The referee's private key lives only in the REFEREE_SECRET secret on Cloudflare.
 // Players' keys never come here: they prove who they are with a NIP-98 signed request.
@@ -25,6 +28,8 @@ const guestTag = id => bytesToHex(sha256(enc.encode('arcade-guest:' + id))).slic
 const STAT = /^[a-z0-9_]{1,24}$/;
 const TICKET_TTL_MS = 6 * 3600 * 1000;
 const MAX_BODY = 512 * 1024;
+const PENDING = 'pending:', DONE = 'done:';
+const PENDING_TTL_S = 14 * 86400, DONE_TTL_S = 2 * 86400;
 const enc = new TextEncoder();
 
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; this.expose = true; } }
@@ -71,6 +76,8 @@ export default {
       if (!key) throw new HttpError(503, 'The referee is not set up yet.');
       if (url.pathname === '/ticket' && req.method === 'GET') return json(await issueTicket(url, key), 200, cors);
       if (url.pathname === '/verify' && req.method === 'POST') return json(await verifyRun(req, url, key, env), 200, cors);
+      if (url.pathname === '/pending' && req.method === 'GET') { await verifierOnly(req, env); return json(await listPending(url, env), 200); }
+      if (url.pathname === '/resolve' && req.method === 'POST') { await verifierOnly(req, env); return json(await resolveRun(req, key, env), 200); }
       throw new HttpError(404, 'Not found.');
     } catch (e) {
       return json({ error: e.expose ? e.message : 'The referee hit an error.' }, e.status || 500, cors);
@@ -128,47 +135,118 @@ async function verifyRun(req, url, key, env) {
   let body;
   try { body = JSON.parse(bodyText); } catch (e) { throw new HttpError(400, 'Bad request.'); }
   const t = await openTicket(body.ticket, key);
-  let who;
+  let who, d;
   if (t.p) {
     // Nostr player: must prove it's their run with a NIP-98 signature.
     const player = checkAuth(req.headers.get('Authorization'), url, bodyText);
     if (t.p !== player) throw new HttpError(403, 'This run belongs to a different player.');
-    who = [['d', `arcade:${t.g}:${t.b}:${player}`], ['p', player]];
+    d = `arcade:${t.g}:${t.b}:${player}`;
+    who = [['p', player]];
   } else {
     // Guest: the ticket was issued for their private guest id; they choose a nickname.
     const n = checkName(body.name);
     if (!n.ok) throw new HttpError(422, n.error);
     const tag = guestTag(t.q);
-    who = [['d', `arcade:${t.g}:${t.b}:guest:${tag}`], ['guest', tag], ['name', n.name]];
+    d = `arcade:${t.g}:${t.b}:guest:${tag}`;
+    who = [['guest', tag], ['name', n.name]];
   }
   const game = findGame(t.g, t.b);
   if (body.rules !== game.rules) throw new HttpError(409, `${game.title} was updated. Reload the page to play the new version.`);
 
+  // Games too heavy to replay within a request are checked quickly now and replayed later
+  // by the verifier job (tools/verify-pending.mjs); their scores are published as pending.
+  const deferred = !!(game.deferred && typeof game.quickCheck === 'function' && env.RUNS);
   let r;
-  try { r = await game.verify({ board: t.b, seed: t.s, replay: body.replay }); }
-  catch (e) { throw new HttpError(422, 'The replay did not check out: ' + String(e && e.message || 'invalid').slice(0, 120)); }
+  try {
+    r = deferred
+      ? await game.quickCheck({ board: t.b, seed: t.s, replay: body.replay, claim: { score: body.score, stats: body.stats } })
+      : await game.verify({ board: t.b, seed: t.s, replay: body.replay });
+  } catch (e) { throw new HttpError(422, 'The replay did not check out: ' + String(e && e.message || 'invalid').slice(0, 120)); }
   if (!r || !r.finished) throw new HttpError(422, 'The run is not finished.');
   if (!Number.isSafeInteger(r.score) || r.score <= 0 || r.score > 999999999999) throw new HttpError(422, 'Score some points to post a run.');
   if (!(Date.now() - t.t >= (Number(r.playMs) || 0) * 0.97)) throw new HttpError(422, 'The run finished faster than it could be played.');
+  const stats = cleanStats(r.stats);
+  // native SHA-256: much cheaper than the JavaScript one on a cold Worker
+  const replayHash = bytesToHex(new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(JSON.stringify(body.replay)))));
 
-  const stats = Object.entries(r.stats || {}).filter(([k, v]) => STAT.test(k) && Number.isSafeInteger(v) && v >= 0).slice(0, 12);
+  if (!deferred) return { event: scoreEvent(key, env, { t, game, d, who, score: r.score, stats, replayHash }) };
+
+  const run = bytesToHex(sha256(enc.encode('arcade-run:' + body.ticket))).slice(0, 32);
+  if (await env.RUNS.get(PENDING + run) || await env.RUNS.get(DONE + run)) throw new HttpError(409, 'This run was already posted.');
+  const record = { v: 1, run, g: t.g, b: t.b, s: t.s, d, who, rules: game.rules, score: r.score, stats, replayHash, replay: body.replay, at: Date.now() };
+  await env.RUNS.put(PENDING + run, JSON.stringify(record), { expirationTtl: PENDING_TTL_S });
+  const event = scoreEvent(key, env, { t, game, d: `arcade:${t.g}:${t.b}:pending:${run}`, who, score: r.score, stats, replayHash,
+    extra: [['status', 'pending'], ['run', run]] });
+  return { event, pending: true };
+}
+
+function cleanStats(stats) {
+  return Object.fromEntries(Object.entries(stats || {}).filter(([k, v]) => STAT.test(k) && Number.isSafeInteger(v) && v >= 0).slice(0, 12));
+}
+// A score record, signed by the referee. `t` is the ticket ({ g: game id, b: board }).
+function scoreEvent(key, env, { t, game, d, who, score, stats, replayHash, extra = [] }) {
   const label = `${game.title} ${game.boards[t.b]}`;
-  const event = finalizeEvent({
+  return finalizeEvent({
     kind: 30078,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
-      ...who,
+      ['d', d], ...who,
       ['t', 'arcade'], ['t', t.g], ['t', `${t.g}-${t.b}`],
       ['game', t.g], ['board', t.b],
-      ['score', String(r.score)],
-      ...stats.map(([k, v]) => ['stat', k, String(v)]),
+      ['score', String(score)],
+      ...Object.entries(stats).map(([k, v]) => ['stat', k, String(v)]),
       ['rules', game.rules],
-      ['replay', bytesToHex(sha256(enc.encode(JSON.stringify(body.replay))))],
-      ['alt', `${env.ARCADE_NAME || 'Arcade'}: verified ${label} score ${r.score}`],
+      ['replay', replayHash],
+      ...extra,
+      ['alt', `${env.ARCADE_NAME || 'Arcade'}: ${extra.some(x => x[0] === 'status') ? 'pending' : 'verified'} ${label} score ${score}`],
     ],
     content: '',
   }, key.sk);
-  return { event };
+}
+
+// ---------- deferred verification (called by the verifier job, not by browsers) ----------
+// GET  /pending?limit=   pending runs with their replays
+// POST /resolve          { run, ok, score, stats, reason } -> one signed event for the job to publish: the verified
+//                        score (leaderboards then hide the pending record, which has the same score), or a record
+//                        that closes the pending one as rejected. One signature per call keeps it within free-plan CPU.
+async function verifierOnly(req, env) {
+  const want = String(env.VERIFIER_TOKEN || '');
+  if (want.length < 32 || !env.RUNS) throw new HttpError(503, 'Deferred verification is not set up.');
+  const got = String(req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+  const a = sha256(enc.encode(got)), b = sha256(enc.encode(want));
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  if (diff) throw new HttpError(401, 'Not authorized.');
+}
+async function listPending(url, env) {
+  const limit = Math.max(1, Math.min(20, Number(url.searchParams.get('limit')) || 10));
+  const list = await env.RUNS.list({ prefix: PENDING, limit });
+  const runs = [];
+  for (const k of list.keys) {
+    const v = await env.RUNS.get(k.name);
+    if (v) { const r = JSON.parse(v); runs.push({ run: r.run, game: r.g, board: r.b, seed: r.s, rules: r.rules, score: r.score, replay: r.replay, at: r.at }); }
+  }
+  return { runs };
+}
+async function resolveRun(req, key, env) {
+  let body;
+  try { body = JSON.parse(await req.text()); } catch (e) { throw new HttpError(400, 'Bad request.'); }
+  if (!/^[0-9a-f]{32}$/.test(String(body.run || ''))) throw new HttpError(400, 'Bad run id.');
+  const raw = await env.RUNS.get(PENDING + body.run);
+  if (!raw) throw new HttpError(404, 'No such pending run.');
+  const rec = JSON.parse(raw);
+  const game = findGame(rec.g, rec.b);
+  if (!game) throw new HttpError(400, 'Unknown game.');
+  const t = { g: rec.g, b: rec.b };
+  // Only the claimed score can be confirmed: a replay that scores differently is a rejection.
+  const ok = body.ok === true && body.score === rec.score && rec.rules === game.rules;
+  const events = [ok
+    ? scoreEvent(key, env, { t, game, d: rec.d, who: rec.who, score: rec.score, stats: cleanStats(body.stats), replayHash: rec.replayHash })
+    : scoreEvent(key, env, { t, game, d: `arcade:${rec.g}:${rec.b}:pending:${rec.run}`, who: rec.who, score: rec.score, stats: rec.stats,
+      replayHash: rec.replayHash, extra: [['status', 'rejected'], ['run', rec.run]] })];
+  await env.RUNS.put(DONE + rec.run, ok ? 'verified' : 'rejected', { expirationTtl: DONE_TTL_S });
+  await env.RUNS.delete(PENDING + rec.run);
+  return { verified: ok, d: rec.d, score: rec.score, events };
 }
 
 // ---------- setup page ----------

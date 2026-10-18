@@ -159,7 +159,7 @@ G.showOver = function (on) {
   ov.hidden = false;
   const thisRun = run, raceNo = game.raceNo + 1;
   arcade.showResult($('overNostr'), {
-    run: thisRun, score,
+    run: thisRun, score, stats: { race: raceNo, wins: game.wins },
     replay: () => encodeReplay('classic', thisRun.seed, thisRun.segs, Uint32Array.from(thisRun.inputs)),
     shareText: (verified) => `I scored ${fmt(score)} in Dirtbox Rally${verified ? ' (verified)' : ''}: reached race ${raceNo} with ${game.wins} win${game.wins === 1 ? '' : 's'}.\n\nPlay: ${arcade.gameUrl}\n#dirtboxrally`,
   });

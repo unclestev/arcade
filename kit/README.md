@@ -41,6 +41,8 @@ export default {
 
 Register it in `referee/src/games.js`.
 
+**Long games:** if a full replay takes more than a few milliseconds, Cloudflare's free plan can't verify it within one request. Add `deferred: true` and a cheap `quickCheck({ board, seed, replay, claim })` that returns `{ finished, score: claim.score, playMs, stats }` after consistency checks; the referee posts the score as pending and the verifier job runs `verify` later (see `dirtbox/verify.js` and referee/README.md). Pass the run's `stats` to `showResult` so they reach the referee.
+
 ### 4. List it in `games.js`
 
 ```js

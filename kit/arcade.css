@@ -86,3 +86,5 @@
 .ax-guest[hidden]{display:none}
 .ax-guest input{text-align:center}
 .ax-guest input:disabled{opacity:.6}
+
+.ax-badge.pending{color:var(--ax-gold);border-color:currentColor}

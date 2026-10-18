@@ -12,3 +12,12 @@ ALLOWED_ORIGINS = "https://unclestev.github.io"
 
 # The referee's Nostr private key is a secret, never stored in this file:
 #   Dashboard → Worker → Settings → Variables and Secrets → Add → Secret → REFEREE_SECRET
+
+# Pending runs for games verified later (deferred), e.g. Dirtbox Rally. Free KV store "arcade-runs".
+[[kv_namespaces]]
+binding = "RUNS"
+id = "4e21f5317eff43a0af9e37a7df7ad3ef"
+
+# The verifier job (.github/workflows/verify-runs.yml) authenticates with a shared token:
+#   Dashboard → Worker → Settings → Variables and Secrets → Add → Secret → VERIFIER_TOKEN
+# and the same value as a GitHub Actions repository secret named VERIFIER_TOKEN.

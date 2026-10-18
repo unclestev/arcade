@@ -209,19 +209,28 @@ export async function fetchProfiles(pks) {
 // Score record (kind 30078, authored by the referee):
 //   d = arcade:<game>:<board>:<player>   p = <player>   t = arcade, <game>, <game>-<board>
 //   game, board, score, rules, replay, and any number of ["stat", name, value]
+// Games verified later (deferred) first get a pending record, one per run:
+//   d = arcade:<game>:<board>:pending:<run>   status = pending | verified | rejected   run = <run id>
+// Only status=pending records are shown (marked PENDING); the verifier job replaces them when it is done.
 export const scoreTag = (game, board) => `${game}-${board}`;
 export const scoreD = (game, board, pk) => `arcade:${game}:${board}:${pk}`;
 export const guestD = (game, board, tag) => `arcade:${game}:${board}:guest:${tag}`;
+export const pendingD = (game, board, run) => `arcade:${game}:${board}:pending:${run}`;
+const PENDING_MAX_AGE_S = 3 * 86400; // stop showing a pending score the verifier never got to
 
-// Returns { key, pubkey | null, guest | null, name, score, stats, rules, at } for a valid referee-signed record.
+// Returns { key, pubkey | null, guest | null, name, score, stats, rules, at, pending } for a valid referee-signed record.
 export function parseScore(e, game, board) {
   if (!e || e.kind !== SCORE_KIND || e.pubkey !== REFEREE_PUBKEY || !Array.isArray(e.tags)) return null;
   const tag = k => { const t = e.tags.find(x => Array.isArray(x) && x[0] === k); return t ? t[1] : undefined; };
   if (tag('game') !== game || tag('board') !== board) return null;
+  const run = tag('run');
+  const pending = HEX32.test(run || '') && tag('d') === pendingD(game, board, run);
+  if (pending && tag('status') !== 'pending') return null;
+  if (!pending && tag('status') !== undefined) return null;
   const p = tag('p'), g = tag('guest');
   let who;
-  if (HEX64.test(p || '') && tag('d') === scoreD(game, board, p)) who = { key: p, pubkey: p, guest: null, name: '' };
-  else if (!p && HEX32.test(g || '') && tag('d') === guestD(game, board, g)) {
+  if (HEX64.test(p || '') && (pending || tag('d') === scoreD(game, board, p))) who = { key: p, pubkey: p, guest: null, name: '' };
+  else if (!p && HEX32.test(g || '') && (pending || tag('d') === guestD(game, board, g))) {
     const n = checkName(tag('name'));
     if (!n.ok || n.name !== tag('name')) return null;
     who = { key: 'guest:' + g, pubkey: null, guest: g, name: n.name };
@@ -230,19 +239,29 @@ export function parseScore(e, game, board) {
   if (score === null || !verifyEvent(e)) return null;
   const stats = {};
   for (const t of e.tags) if (t[0] === 'stat' && /^[a-z0-9_]{1,24}$/.test(t[1] || '') && /^\d{1,12}$/.test(t[2] || '')) stats[t[1]] = Number(t[2]);
-  return { ...who, score, stats, rules: String(tag('rules') || ''), at: e.created_at };
+  return { ...who, score, stats, rules: String(tag('rules') || ''), at: e.created_at, pending };
 }
 export async function fetchBoard(game, board) {
   if (!refereeReady() || !ID.test(game) || !ID.test(board)) return null;
   const evs = await getPool().querySync(RELAYS,
     { kinds: [SCORE_KIND], authors: [REFEREE_PUBKEY], '#t': [scoreTag(game, board)], limit: 500 }, { maxWait: 5000 });
-  const best = new Map();
-  for (const e of evs) {
-    const r = parseScore(e, game, board);
+  return mergeBoard(evs.map(e => parseScore(e, game, board)), now());
+}
+// One row per player: their newest verified record, or a pending score that beats it.
+export function mergeBoard(records, nowS) {
+  const best = new Map(), pend = new Map();
+  for (const r of records) {
     if (!r) continue;
+    if (r.pending) {
+      if (nowS - r.at > PENDING_MAX_AGE_S) continue;
+      const cur = pend.get(r.key);
+      if (!cur || r.score > cur.score) pend.set(r.key, r);
+      continue;
+    }
     const cur = best.get(r.key);
     if (!cur || r.at > cur.at) best.set(r.key, r); // newest verified record per player (replaceable event)
   }
+  for (const [k, p] of pend) { const v = best.get(k); if (!v || p.score > v.score) best.set(k, p); }
   return [...best.values()].sort((a, b) => b.score - a.score || a.at - b.at);
 }
 // who: { pubkey } for a signed-in player, or { guest: <guest id> } for a guest.
@@ -280,10 +299,11 @@ export async function requestTicket(game, board, who) {
 
 const utf8b64 = s => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
 
-export async function submitVerified({ game, board, ticket, rules, replay, score }) {
+export async function submitVerified({ game, board, ticket, rules, replay, score, stats }) {
   if (!signer) throw new Error('Sign in first.');
   const url = `${REFEREE_URL}/verify`;
-  const body = JSON.stringify({ ticket, rules, replay });
+  // score and stats are only read for games verified later; everything else is computed from the replay
+  const body = JSON.stringify({ ticket, rules, replay, score, stats });
   const payload = bytesToHex(sha256(new TextEncoder().encode(body)));
   // NIP-98 HTTP auth: proves to the referee that this run belongs to you. Never published.
   const auth = await signer.sign({ kind: 27235, created_at: now(), tags: [['u', url], ['method', 'POST'], ['payload', payload]], content: '' });
@@ -295,26 +315,26 @@ export async function submitVerified({ game, board, ticket, rules, replay, score
   try { j = await res.json(); } catch (e) {}
   if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error.slice(0, 160) : 'The referee could not verify this run.');
   const r = parseScore(j.event, game, board);
-  if (!r || r.pubkey !== signer.pubkey || r.score !== score) throw new Error('The referee sent back an unexpected result.');
+  if (!r || r.pubkey !== signer.pubkey || r.score !== score || r.pending !== !!j.pending) throw new Error('The referee sent back an unexpected result.');
   const relays = await publish(j.event);
-  return { relays, record: r };
+  return { relays, record: r, pending: r.pending };
 }
 
 // Guests: no signature needed. The ticket (bound to the guest id) and the replay prove the run.
-export async function submitGuest({ game, board, ticket, rules, replay, score, name, guestId }) {
+export async function submitGuest({ game, board, ticket, rules, replay, score, stats, name, guestId }) {
   const n = checkName(name);
   if (!n.ok) throw new Error(n.error);
   const res = await withTimeout(fetch(`${REFEREE_URL}/verify`, {
     method: 'POST', credentials: 'omit', cache: 'no-store',
-    body: JSON.stringify({ ticket, rules, replay, name: n.name }), headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticket, rules, replay, score, stats, name: n.name }), headers: { 'Content-Type': 'application/json' },
   }), 20000, 'The referee took too long.');
   let j = {};
   try { j = await res.json(); } catch (e) {}
   if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error.slice(0, 160) : 'The referee could not verify this run.');
   const r = parseScore(j.event, game, board);
-  if (!r || r.guest !== guestTag(guestId) || r.name !== n.name || r.score !== score) throw new Error('The referee sent back an unexpected result.');
+  if (!r || r.guest !== guestTag(guestId) || r.name !== n.name || r.score !== score || r.pending !== !!j.pending) throw new Error('The referee sent back an unexpected result.');
   const relays = await publish(j.event);
-  return { relays, record: r };
+  return { relays, record: r, pending: r.pending };
 }
 
 async function publish(ev) {

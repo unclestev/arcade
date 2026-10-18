@@ -32,9 +32,10 @@ The most important rule in UncleStev Arcade: **a player's Nostr private key must
 ## The referee
 
 - One Cloudflare Worker verifies runs for every game. Its Nostr private key exists only in the `REFEREE_SECRET` Worker secret. The setup page shows the public key, never the secret.
-- Tickets are sealed with an HMAC derived from that secret, bound to one player, game and board, and expire after six hours. The referee keeps no database.
-- `/verify` requires a valid NIP-98 signature from the ticket's player, checks the game's rules version, replays the full run with that game's own rules, computes the score itself, and signs a kind 30078 event. The score is never taken from the client.
+- Tickets are sealed with an HMAC derived from that secret, bound to one player, game and board, and expire after six hours. The referee keeps no database, except the pending-run store described below.
+- `/verify` requires a valid NIP-98 signature from the ticket's player, checks the game's rules version, replays the full run with that game's own rules, computes the score itself, and signs a kind 30078 event. The score is never taken from the client; for games verified later, the client's claimed score is only signed as verified once the replay reproduces it exactly.
 - CORS allows only the origins in `ALLOWED_ORIGINS`.
+- Games verified later (Dirtbox Rally): `/verify` runs quick consistency checks, stores the replay in the `RUNS` KV store and signs a separate *pending* record that never replaces a verified score. The GitHub Actions verifier replays the run and calls `/resolve`, authenticated with the `VERIFIER_TOKEN` secret (compared in constant time). It never holds the referee key; the referee only signs a verified score when the replay scores exactly what was claimed. A leaked `VERIFIER_TOKEN` could let someone confirm pending runs without replaying them, so rotate it in both places if that happens.
 
 What the referee can't prevent: a bot or script that genuinely plays the game. Runs must take at least as long as real play.
 

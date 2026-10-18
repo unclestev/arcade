@@ -32,6 +32,8 @@ New to Nostr? The sign-in screen links to free signers (nsec.app, Nostash, Alby,
 3. At game over the player taps **Post** (guests type a nickname first). The referee replays the inputs with the game's own rules, computes the score itself, and signs it with the arcade's Nostr key.
 4. Leaderboards only show scores signed by the referee, and check every signature.
 
+Dirtbox Rally runs are too long to replay within one request on Cloudflare's free plan, so they post right away as **PENDING** after quick consistency checks, and a scheduled job replays every frame a few minutes later. The score then turns verified, or disappears if the replay doesn't match (see [referee/README.md](referee/README.md#games-verified-later-dirtbox-rally)).
+
 Faked scores, edited runs, reused tickets and other players' runs all fail. No web game can stop a bot that genuinely plays well; the referee also rejects runs that finish faster than real time.
 
 ### Score records
@@ -47,6 +49,8 @@ score  <integer>       rules  <rules version>
 stat   <name> <integer>     (any number, e.g. group, combo)
 replay <sha256 of the replay>
 ```
+
+Pending records for games verified later use `d arcade:<game>:<board>:pending:<run id>` with `status pending` and `run <run id>`; once the replay checks out the player's normal record carries the same score and the pending one is hidden; a run that fails gets `status rejected`. Leaderboards show only `status pending` records that aren't matched by a verified score (marked PENDING).
 
 ## Repo layout
 
