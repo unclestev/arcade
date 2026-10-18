@@ -240,7 +240,7 @@ function action() {
 }
 function handleEvents() {
   for (const e of G.ev) {
-    E.onEvent(e);
+    try { E.onEvent(e); } catch (err) { reportGlitch(err); } // effects only: never let them stop the game
     switch (e.t) {
       case 'wave': show(null); break;
       case 'ready': showReady(); break;
@@ -730,7 +730,7 @@ const NG = {
   },
   // Everything in sim coordinates (already translated by ox), then the screen-space overlays and HUD.
   drawField(c, t, btc) {
-    const W = this.W, H = this.H, s = this.scale, V = this.V, ox = this.ox;
+    const W = this.W, H = this.H, s = this.scale, V = this.V, ox = this.ox, Gd = NGc.GROUND;
     if (G.pw.shield) {
       const a = 0.55 + 0.2 * Math.sin(t * 3);
       const sh = c.createLinearGradient(0, Gd - 34, 0, Gd);
@@ -1430,19 +1430,27 @@ function tickGame(dt) {
   }
   if (acc > TICK * 8) acc = 0;
 }
+// A drawing bug must never freeze a run: log it once, reset the canvas and keep the game going.
+let glitched = false;
+function reportGlitch(err) { if (!glitched) { glitched = true; console.error('Bomber visual glitch:', err); } }
 let last = performance.now();
 function frame(t) {
+  requestAnimationFrame(frame); // schedule first, so an error below can't stop the loop
   const dt = Math.min(0.05, (t - last) / 1000); last = t;
   S.time += dt;
   pollPads();
   updateInput(dt);
   tickGame(dt);
-  if (!S.paused && !modalOpen()) E.update(dt);
-  E.render();
+  try {
+    if (!S.paused && !modalOpen()) E.update(dt);
+    E.render();
+  } catch (err) {
+    reportGlitch(err);
+    try { E.c.setTransform(1, 0, 0, 1, 0, 0); if (E.c.reset) E.c.reset(); } catch (e2) {}
+  }
   setFuse(settings.sound && G && G.mode !== 'bitcoin' && G.state === 'play' && !S.paused && !modalOpen() && G.bombs.length > 0);
   musicTick();
   updateSettingsLive();
-  requestAnimationFrame(frame);
 }
 function boot() {
   E = CL; document.body.dataset.view = 'classic';
