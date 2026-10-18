@@ -99,7 +99,7 @@ async function publish(events, d) {
 }
 
 async function main() {
-  if (TOKEN.length < 32) { log('VERIFIER_TOKEN is not set; nothing to do.'); return; }
+  if (TOKEN.length < 32) { log('VERIFIER_TOKEN is not set: add it as a GitHub Actions secret (see referee/README.md).'); process.exitCode = 1; return; }
   const started = Date.now();
   let done = 0, failed = 0;
   {
