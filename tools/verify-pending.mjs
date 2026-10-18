@@ -19,6 +19,8 @@ const REFEREE = args.includes('--referee') ? args[args.indexOf('--referee') + 1]
 const TOKEN = process.env.VERIFIER_TOKEN || '';
 const TIME_BUDGET_MS = 8 * 60 * 1000; // stay inside one scheduled run
 const log = (...a) => console.log(new Date().toISOString(), ...a);
+// On GitHub Actions, problems also show up as annotations on the run page.
+const problem = msg => { log(msg); if (process.env.GITHUB_ACTIONS) console.log('::error::' + String(msg).replace(/\r?\n/g, ' ')); process.exitCode = 1; };
 
 export async function verifyOne(run) {
   const game = GAMES[run.game];
@@ -99,7 +101,7 @@ async function publish(events, d) {
 }
 
 async function main() {
-  if (TOKEN.length < 32) { log('VERIFIER_TOKEN is not set: add it as a GitHub Actions secret (see referee/README.md).'); process.exitCode = 1; return; }
+  if (TOKEN.length < 32) { problem('VERIFIER_TOKEN is not set: add it as a GitHub Actions secret (see referee/README.md).'); return; }
   const started = Date.now();
   let done = 0, failed = 0;
   {
@@ -115,7 +117,7 @@ async function main() {
           const r = await call('/resolve', { method: 'POST', body: JSON.stringify({ run: run.run, ok: v.ok, score: v.score, stats: v.stats || {}, reason: v.reason || '' }) });
           log('  ' + await publish(r.events, r.d));
           done++;
-        } catch (e) { failed++; log('  could not resolve:', e.message); }
+        } catch (e) { failed++; problem('could not resolve run ' + run.run + ': ' + e.message); }
       }
       if (DRY) break;
     }
@@ -125,5 +127,5 @@ async function main() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch(e => { log('error:', e.message); process.exitCode = 1; }).finally(() => process.exit(process.exitCode || 0));
+  main().catch(e => problem('verifier stopped: ' + e.message)).finally(() => process.exit(process.exitCode || 0));
 }
