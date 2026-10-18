@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<!-- Security: only this site's own scripts may run. No inline scripts, no third-party code, no eval.
+     Network access is limited to Nostr relays (wss:) and the arcade referee. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' wss: https://arcade-referee.sfailla.workers.dev; base-uri 'none'; form-action 'none'; object-src 'none'; manifest-src 'self'; require-trusted-types-for 'script'; trusted-types 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#0a0612">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="description" content="Dirtbox Rally, part of UncleStev Arcade: isometric off-road racing with boxy 4x4s, missiles, bombs and jumps, with a verified Nostr leaderboard. Keyboard, touch, gamepad or Logitech G29 wheel.">
+<title>Dirtbox Rally</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap">
+<link rel="stylesheet" href="../kit/arcade.css">
+<link rel="stylesheet" href="css/dirtbox.css">
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <a class="brand" href="../" aria-label="Dirtbox Rally, part of UncleStev Arcade">DIRTBOX <em>RALLY</em></a>
+    <div class="spacer"></div>
+    <div class="hi">HI <b id="hiTop">0</b></div>
+    <button class="icon-btn" id="btnBoard" type="button" aria-label="Leaderboard"><svg viewBox="0 0 24 24"><path d="M6 20V11M12 20V5M18 20v-6"/></svg></button>
+    <button class="icon-btn acct" id="btnAcct" type="button" aria-label="Nostr sign-in and leaderboards"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span class="who" id="acctName">Sign in</span></button>
+    <button class="icon-btn" id="btnFull" type="button" aria-label="Full screen"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+  </header>
+
+  <main class="stage" id="game" aria-label="Dirtbox Rally game screen">
+    <canvas id="screen" width="384" height="216" tabindex="0"></canvas>
+
+    <div class="over" id="ovOver" hidden>
+      <div class="over-card" role="dialog" aria-labelledby="overTitle">
+        <p class="over-title" id="overTitle">FINAL SCORE</p>
+        <p class="over-score" id="overScore">0</p>
+        <div class="stats">
+          <div><b id="stRace">1</b><span>Race</span></div>
+          <div><b id="stWins">0</b><span>Wins</span></div>
+          <div><b id="stCircuit">1</b><span>Circuit</span></div>
+        </div>
+        <p class="small" id="overHi">HI SCORE <b>0</b></p>
+        <div class="ax-result" id="overNostr" hidden></div>
+        <div class="row">
+          <button class="btn primary" id="btnAgain" type="button">PLAY AGAIN</button>
+          <button class="btn" id="btnMenu" type="button">MENU</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="touch" hidden>
+  <div class="t-steer" data-steer aria-label="Steer: slide left or right">
+    <span class="l" aria-hidden="true">&#9664;</span><span class="r" aria-hidden="true">&#9654;</span>
+  </div>
+  <div class="t-buttons">
+    <button type="button" data-act="boost" class="b-nitro">NITRO</button>
+    <button type="button" data-act="bomb" class="b-bomb">BOMB</button>
+    <button type="button" data-act="fire" class="b-fire">MISSILE</button>
+    <button type="button" data-act="brake" class="b-brake">BRAKE</button>
+    <button type="button" data-act="gas" class="b-gas">GAS</button>
+  </div>
+  <button type="button" data-act="pause" class="t-pause" aria-label="Pause">II</button>
+</div>
+
+<p id="rotate">Turn your phone sideways to play</p>
+</body>
+</html>

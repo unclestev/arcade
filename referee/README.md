@@ -31,6 +31,8 @@ A Cloudflare Worker that replays finished runs for every game in the arcade and 
 
 Verifying a run replays every frame. Cloudflare's free plan allows 10 ms of CPU per request. Short and medium games fit; very long games (or the first request after the Worker wakes up) can exceed it, and the player sees an error. If that happens often, move the Worker to a paid plan, which allows much more CPU time per request.
 
+**Dirtbox Rally needs the paid plan.** A race replays four trucks with physics and AI at 60 Hz, which costs about 5 µs per frame: roughly 120 ms for a 7-minute run and up to about 1 s for a long one, plus a few hundred milliseconds when the Worker wakes up. That never fits in the free plan's 10 ms, so on the free plan Dirtbox Rally scores can't be posted (Bomber keeps working). The Workers paid plan allows 30 s of CPU per request by default, which covers any Dirtbox run.
+
 ## Updating games
 
 The referee bundles each game's rules from the repo. If you connected the repo, Cloudflare redeploys on every push, so site and referee stay in step. When a game's `RULES` version changes, runs recorded under the old rules get a clear "reload to play the new version" message.

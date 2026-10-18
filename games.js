@@ -20,4 +20,11 @@ export const GAMES = {
       blurb: 'Satoshi is mining coins off the rig. Stack every falling bitcoin in your cold wallets before the price crashes. Next Gen rules, its own leaderboard.',
     }],
   },
+  dirtbox: {
+    title: 'Dirtbox Rally',
+    path: 'dirtbox/',
+    cover: 'dirtbox/cover.jpg',
+    blurb: 'Isometric off-road racing with boxy 4x4s, missiles, bombs and jumps over the creek. Finish in the top three or lose a truck.',
+    boards: [{ id: 'classic', label: 'Classic', stats: [['race', 'Race'], ['wins', 'Wins']] }],
+  },
 };

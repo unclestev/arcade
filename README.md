@@ -8,8 +8,9 @@ Browser arcade games with one shared Nostr sign-in and a leaderboard where every
 |---|---|---|
 | **Bomber** — catch Sparky's falling bombs in three water buckets. Atari-style Classic mode and a modern Next Gen remake. | Classic, Next Gen | [/arcade/bomber/](https://unclestev.github.io/arcade/bomber/) |
 | **Bomber: Bitcoin Edition** — Satoshi drops bitcoins off a mining rig; stack them in cold wallets before the price crashes. Next Gen rules with its own look and leaderboard. | Bitcoin | [/arcade/bomber/?mode=bitcoin](https://unclestev.github.io/arcade/bomber/?mode=bitcoin) |
+| **Dirtbox Rally** — isometric off-road racing with boxy 4x4s, missiles, bombs, upgrades and jumps over the creek. Eight tracks per circuit; finish in the top three or lose a truck. | Classic | [/arcade/dirtbox/](https://unclestev.github.io/arcade/dirtbox/) |
 
-Every game works with touch, keyboard and mouse; Bomber also supports gamepads and the Logitech G29 wheel.
+Every game works with touch, keyboard and mouse; Bomber and Dirtbox Rally also support gamepads and the Logitech G29 wheel (Dirtbox Rally has a wheel setup wizard for steering, pedals and buttons).
 
 ## Play as a guest, or sign in once for everything
 
@@ -54,6 +55,7 @@ index.html, hub/      arcade front page
 games.js              list of games: title, path, cover, boards, the stats each board shows, and extra edition cabinets
 kit/                  shared sign-in, scores and leaderboard UI used by every game (see kit/README.md)
 bomber/               Bomber (its rules in bomber/js/sim.js, referee module in bomber/verify.js)
+dirtbox/              Dirtbox Rally (its rules in dirtbox/js/sim.js, referee module in dirtbox/verify.js)
 referee/              Cloudflare Worker that verifies runs for every game
 tools/                build scripts for the vendored Nostr library and single-file previews
 ```

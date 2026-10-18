@@ -3,5 +3,6 @@
 //   async verify({ board, seed, replay }) -> { finished, score, playMs, stats: { name: integer } }
 // To add a game, import its verify module here and add it to the list.
 import bomber from '../../bomber/verify.js';
+import dirtbox from '../../dirtbox/verify.js';
 
-export const GAMES = Object.fromEntries([bomber].map(g => [g.id, g]));
+export const GAMES = Object.fromEntries([bomber, dirtbox].map(g => [g.id, g]));
