@@ -553,6 +553,7 @@ S.options = {
       Object.assign({ label: 'SOUND FX' }, onoff('sfx', (v) => G.audio.setSfx(v))),
       Object.assign({ label: 'TOUCH AUTO-GAS' }, onoff('autoGas')),
       { label: 'STEERING', value: () => (st.steerFeel || 'smooth').toUpperCase(), change: (d) => { st.steerFeel = cycle(In().STEER_FEELS, st.steerFeel || 'smooth', d); G.saveSettings(); } },
+      { label: '3D CAMERA', value: () => (st.ngCam || 'high').toUpperCase(), change: (d) => { st.ngCam = cycle(['high', 'medium', 'low'], st.ngCam || 'high', d); G.saveSettings(); } },
       Object.assign({ label: 'WHEEL ROTATION' }, { value: () => st.wheelLock + ' DEG', change: (d) => { st.wheelLock = cycle([180, 270, 360, 540, 900], st.wheelLock, d); G.saveSettings(); } }),
       { label: 'WHEEL SETUP', action: () => G.go('wheel', { back: 'options', arg: this.arg }) },
       { label: 'CONTROLS', action: () => G.go('controls', { arg: this.arg }) },

@@ -12,6 +12,13 @@ import * as HUD from './hud3d.js';
 const U = G.U;
 const RIVAL_NAMES = ['BLAZE', 'RIPTIDE', 'DUSTY', 'BOULDER', 'FROSTY', 'NIGHTOWL', 'TORCH', 'JAMMER'];
 const PLAYER = 3;
+// Chase camera presets: distance behind, height, how far ahead it aims and at what height.
+const CAMS = {
+  high: { dist: 34, hgt: 30, hgtSpeed: 4, ahead: 40, aheadSpeed: 14, lookY: 1 },
+  medium: { dist: 30, hgt: 20, hgtSpeed: 3, ahead: 28, aheadSpeed: 10, lookY: 2.5 },
+  low: { dist: 27, hgt: 11.5, hgtSpeed: 1.5, ahead: 16, aheadSpeed: 0, lookY: 4 },
+};
+export const CAM_NAMES = Object.keys(CAMS);
 const WHEEL_R = 2.15;
 
 let renderer = null, canvas = null, camera = null, stage = null, shown = false;
@@ -592,9 +599,11 @@ export class RaceView3D {
     const fx = Math.cos(a), fz = Math.sin(a);
     const speed = U.clamp(Math.abs(c.vF) / 200, 0, 1);
     const boost = c.boostT > 0 ? 1 : 0;
-    const dist = 27 + speed * 6, hgt = 11.5 + speed * 1.5;
+    // Options > 3D CAMERA: HIGH looks well down the track, LOW is a classic bumper-height chase view
+    const cam = CAMS[G.settings.ngCam] || CAMS.high;
+    const dist = cam.dist + speed * 6, hgt = cam.hgt + speed * cam.hgtSpeed, ahead = cam.ahead + speed * cam.aheadSpeed;
     const pos = new THREE.Vector3(c.x - fx * dist, py + hgt, c.y - fz * dist);
-    const look = new THREE.Vector3(c.x + fx * 16, py + 4, c.y + fz * 16);
+    const look = new THREE.Vector3(c.x + fx * ahead, py + cam.lookY, c.y + fz * ahead);
     let fov = 60 + speed * 8 + boost * 7;
     if (R.phase === 'intro') {
       // fly in from in front of the grid
@@ -621,7 +630,7 @@ export class RaceView3D {
     camera.lookAt(this.camLook);
     if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * (dt ? Math.min(1, dt * 4) : 1); camera.updateProjectionMatrix(); }
     // shadows follow the action; the sky dome follows the camera
-    this.target.set(c.x + fx * 30, 0, c.y + fz * 30);
+    this.target.set(c.x + fx * 45, 0, c.y + fz * 45);
     const sun = this.world.sun;
     sun.position.copy(this.target).addScaledVector(this.world.sunDir, 300);
     sun.target.position.copy(this.target);
