@@ -114,7 +114,7 @@ body {
   position: absolute;
   left: calc(env(safe-area-inset-left, 0px) + 14px);
   bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
-  width: max(150px, 34vmin);
+  width: max(180px, 42vmin);
   height: max(82px, 21vmin);
   display: flex;
   border: 3px solid var(--bezel);
@@ -125,6 +125,10 @@ body {
 .t-steer span { flex: 1; display: grid; place-items: center; font: 22px/1 var(--display); color: rgba(242, 236, 255, .55); }
 .t-steer span.l { border-right: 2px dashed rgba(20, 14, 26, .6); }
 .t-steer[data-dir="left"] .l, .t-steer[data-dir="right"] .r { color: var(--accent); background: rgba(255, 224, 96, .14); }
+.t-steer .t-bar, .t-steer .t-knob { position: absolute; pointer-events: none; opacity: 0; }
+.t-steer .t-bar { bottom: 5px; height: 6px; left: var(--bar-l, 50%); width: var(--bar-w, 0%); background: var(--accent); }
+.t-steer .t-knob { top: 6px; bottom: 6px; width: 8px; left: calc(var(--knob, 50%) - 4px); background: rgba(242, 236, 255, .85); border: 2px solid var(--bezel); }
+.t-steer.active .t-bar, .t-steer.active .t-knob { opacity: .9; }
 .t-buttons {
   position: absolute;
   right: calc(env(safe-area-inset-right, 0px) + 14px);

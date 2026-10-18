@@ -28,7 +28,7 @@ const KEY = C.STORAGE_KEY;
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => Number(n).toLocaleString('en-US');
 
-const DEFAULT_SETTINGS = { music: true, sfx: true, autoGas: true, wheelLock: 270, lastScheme: 0 };
+const DEFAULT_SETTINGS = { music: true, sfx: true, autoGas: true, wheelLock: 270, steerFeel: 'smooth', lastScheme: 0 };
 G.settings = Object.assign({}, DEFAULT_SETTINGS, U.store.load(KEY + '.settings', {}));
 G.saveSettings = () => U.store.save(KEY + '.settings', G.settings);
 G.hiScore = U.store.load(KEY + '.hi', 0) || 0;

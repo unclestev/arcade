@@ -530,6 +530,7 @@ S.options = {
       Object.assign({ label: 'MUSIC' }, onoff('music', (v) => G.audio.setMusic(v))),
       Object.assign({ label: 'SOUND FX' }, onoff('sfx', (v) => G.audio.setSfx(v))),
       Object.assign({ label: 'TOUCH AUTO-GAS' }, onoff('autoGas')),
+      { label: 'STEERING', value: () => (st.steerFeel || 'smooth').toUpperCase(), change: (d) => { st.steerFeel = cycle(In().STEER_FEELS, st.steerFeel || 'smooth', d); G.saveSettings(); } },
       Object.assign({ label: 'WHEEL ROTATION' }, { value: () => st.wheelLock + ' DEG', change: (d) => { st.wheelLock = cycle([180, 270, 360, 540, 900], st.wheelLock, d); G.saveSettings(); } }),
       { label: 'WHEEL SETUP', action: () => G.go('wheel', { back: 'options', arg: this.arg }) },
       { label: 'CONTROLS', action: () => G.go('controls', { arg: this.arg }) },
@@ -553,10 +554,10 @@ S.options = {
 
 // ======================= CONTROLS =======================
 const PAGES = [
-  ['KEYBOARD', [['STEER', 'LEFT/RIGHT OR A/D'], ['GAS', 'UP OR W'], ['BRAKE/REVERSE', 'DOWN OR S'], ['MISSILE', 'SPACE, J OR Z'], ['BOMB', 'K OR X'], ['NITRO', 'L, C OR SHIFT'], ['PAUSE', 'ESC OR P'], ['START', 'ENTER OR 1'], ['FULLSCREEN', 'F'], ['MUSIC ON/OFF', 'M']]],
+  ['KEYBOARD', [['STEER', 'LEFT/RIGHT OR A/D - HOLD TO TURN MORE'], ['GAS', 'UP OR W'], ['BRAKE/REVERSE', 'DOWN OR S'], ['MISSILE', 'SPACE, J OR Z'], ['BOMB', 'K OR X'], ['NITRO', 'L, C OR SHIFT'], ['PAUSE', 'ESC OR P'], ['START', 'ENTER OR 1'], ['FULLSCREEN', 'F'], ['MUSIC ON/OFF', 'M']]],
   ['LOGITECH G29', [['STEER', 'WHEEL'], ['GAS / BRAKE', 'PEDALS'], ['MISSILE', 'X OR RIGHT PADDLE'], ['BOMB', 'CIRCLE OR LEFT PADDLE'], ['NITRO', 'SQUARE, TRIANGLE OR R2'], ['PAUSE / START', 'OPTIONS'], ['MENUS', 'TURN WHEEL / D-PAD'], ['SELECT / BACK', 'GAS / BRAKE PEDAL'], ['', 'RUN WHEEL SETUP TO REMAP']]],
-  ['GAMEPAD', [['STEER', 'LEFT STICK OR D-PAD'], ['GAS', 'RT OR A'], ['BRAKE', 'LT OR X'], ['MISSILE', 'B'], ['BOMB', 'Y'], ['NITRO', 'LB OR RB'], ['PAUSE', 'START']]],
-  ['TOUCH', [['STEER', 'LEFT PAD - SLIDE THUMB'], ['GAS', 'AUTO (OR GAS BUTTON)'], ['BRAKE', 'BRAKE BUTTON'], ['MISSILE', 'MISSILE BUTTON'], ['BOMB', 'BOMB BUTTON'], ['NITRO', 'NITRO BUTTON'], ['PAUSE', 'II BUTTON (TOP)'], ['MENUS', 'TAP ITEMS']]],
+  ['GAMEPAD', [['STEER', 'LEFT STICK OR D-PAD (HOLD)'], ['GAS', 'RT OR A'], ['BRAKE', 'LT OR X'], ['MISSILE', 'B'], ['BOMB', 'Y'], ['NITRO', 'LB OR RB'], ['PAUSE', 'START']]],
+  ['TOUCH', [['STEER', 'LEFT PAD - SLIDE FARTHER TO TURN MORE'], ['GAS', 'AUTO (OR GAS BUTTON)'], ['BRAKE', 'BRAKE BUTTON'], ['MISSILE', 'MISSILE BUTTON'], ['BOMB', 'BOMB BUTTON'], ['NITRO', 'NITRO BUTTON'], ['PAUSE', 'II BUTTON (TOP)'], ['MENUS', 'TAP ITEMS']]],
 ];
 S.controls = {
   enter(arg) { this.arg = arg || {}; this.page = { touch: 3, wheel: 1, pad: 2 }[In().device] || 0; this.t = 0; },

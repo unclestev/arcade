@@ -24,15 +24,45 @@ const I = {
   gamepadBlocked: false,
   wheel: null,          // { id, index, calibrated }
   pad: null,            // { id, index }
-  settings: { wheelLock: 270, autoGas: true },
+  settings: { wheelLock: 270, autoGas: true, steerFeel: 'smooth' },
   cal: {},
   raceMode: false,      // touch auto-gas only applies while racing
 };
+
+// Steering feel (Options > STEERING). Shapes only what the player sends; the race rules and
+// replays are unchanged, so this needs no RULES bump.
+//   keys / D-pad: a press starts as a small nudge (start) and builds to full lock at `rise` per second,
+//                 then recentres at `fall` per second when released
+//   touch pad:    full lock `range` of the pad's width either side of centre, with a small dead zone
+//   touch + stick: expo curve, so small movements give fine corrections and the ends give full lock
+// SHARP is the original behaviour: keys snap to full lock, touch and stick are linear.
+const FEEL = {
+  smooth: { start: 0.2, rise: 2.2, fall: 9, range: 0.42, dead: 0.06, expo: 0.55 },
+  medium: { start: 0.35, rise: 4, fall: 12, range: 0.38, dead: 0.05, expo: 0.3 },
+  sharp: { start: 1, rise: 1e6, fall: 1e6, range: 0.3, dead: 0, expo: 0 },
+};
+I.STEER_FEELS = ['smooth', 'medium', 'sharp'];
+const feel = () => FEEL[I.settings.steerFeel] || FEEL.smooth;
+function curve(x, f) {
+  const a = Math.abs(x);
+  return (x < 0 ? -1 : 1) * (a * (1 - f.expo) + a * a * a * f.expo);
+}
+let digSteer = 0; // ramped keyboard / D-pad steering
+function rampDigital(dir, dt) {
+  const f = feel();
+  if (!dir) digSteer = U.approach(digSteer, 0, f.fall * dt);
+  else {
+    if (digSteer * dir <= 0) digSteer = dir * f.start; // fresh press or reversal: start with a nudge
+    digSteer = U.approach(digSteer, dir, f.rise * dt);
+  }
+  return digSteer;
+}
+
 const keysDown = new Set();
 const queued = new Set();
 let held = {}, prev = {}, pressed = {}, latched = {};
 const repeatT = {};
-const touch = { steer: 0, held: {} };
+const touch = { steer: 0, rel: null, held: {}, el: null };
 const pedalSeen = {};
 let padPrevHeld = {};
 
@@ -51,17 +81,38 @@ function onKey(e, down) {
 }
 window.addEventListener('keydown', (e) => onKey(e, true));
 window.addEventListener('keyup', (e) => onKey(e, false));
-window.addEventListener('blur', () => { keysDown.clear(); touch.held = {}; touch.steer = 0; });
+window.addEventListener('blur', () => { keysDown.clear(); touch.held = {}; touch.steer = 0; touch.rel = null; digSteer = 0; });
 
 // ---------- touch controls ----------
+// Finger position on the pad -> steer -1..1 (using the current steering feel).
+function touchSteer(rel) {
+  const f = feel();
+  const x = U.clamp((rel - 0.5) / f.range, -1, 1);
+  const a = Math.max(0, Math.abs(x) - f.dead) / (1 - f.dead);
+  return curve(x < 0 ? -a : a, f);
+}
+// Knob under the finger and a bar showing how much steering that position gives.
+function drawTouchSteer() {
+  const el = touch.el;
+  if (!el) return;
+  const on = touch.rel !== null;
+  const s = touch.steer;
+  el.classList.toggle('active', on);
+  el.dataset.dir = s < -0.04 ? 'left' : s > 0.04 ? 'right' : '';
+  el.style.setProperty('--knob', (on ? U.clamp(touch.rel, 0, 1) * 100 : 50) + '%');
+  el.style.setProperty('--bar-l', (50 + Math.min(0, s) * 50) + '%');
+  el.style.setProperty('--bar-w', (Math.abs(s) * 50) + '%');
+}
+
 I.bindTouch = function (root) {
   const ptr = new Map();
   const steerEl = root.querySelector('[data-steer]');
+  touch.el = steerEl;
   const setSteerFrom = (e) => {
     const r = steerEl.getBoundingClientRect();
-    const rel = (e.clientX - r.left) / r.width;
-    touch.steer = U.clamp((rel - 0.5) / 0.3, -1, 1);
-    steerEl.dataset.dir = touch.steer < -0.2 ? 'left' : touch.steer > 0.2 ? 'right' : '';
+    touch.rel = (e.clientX - r.left) / r.width;
+    touch.steer = touchSteer(touch.rel);
+    drawTouchSteer();
   };
   root.addEventListener('pointerdown', (e) => {
     const btn = e.target.closest('[data-act],[data-steer]');
@@ -92,7 +143,8 @@ I.bindTouch = function (root) {
     ptr.delete(e.pointerId);
     if (act === 'steer') {
       touch.steer = 0;
-      steerEl.dataset.dir = '';
+      touch.rel = null;
+      drawTouchSteer();
     } else {
       touch.held[act] = false;
       const btn = root.querySelector('[data-act="' + act + '"]');
@@ -162,7 +214,7 @@ function hat(pad) {
 
 function readPads(h) {
   const pads = getPads();
-  let steer = 0, gas = 0, brake = 0;
+  let steer = 0, gas = 0, brake = 0, dpad = 0;
   I.wheel = null;
   I.pad = null;
   for (const pad of pads) {
@@ -204,12 +256,14 @@ function readPads(h) {
       const std = pad.mapping === 'standard';
       let sx = pad.axes[0] || 0;
       if (Math.abs(sx) < 0.15) sx = 0;
-      else sx = Math.sign(sx) * (Math.abs(sx) - 0.15) / 0.85;
-      if (std) {
-        if (btn(pad, 14)) sx = -1;
-        if (btn(pad, 15)) sx = 1;
-      }
-      if (Math.abs(sx) > Math.abs(steer)) steer = sx;
+      else sx = Math.sign(sx) * Math.min(1, (Math.abs(sx) - 0.15) / 0.85);
+      const curved = curve(sx, feel());
+      if (Math.abs(curved) > Math.abs(steer)) steer = curved;
+      // D-pad steers like the keyboard (ramped), so it is returned separately
+      const dl = std && btn(pad, 14), dr = std && btn(pad, 15);
+      if (dl !== dr) dpad = dl ? -1 : 1;
+      if (dl) h.left = true;
+      if (dr) h.right = true;
       const bv = (i) => (pad.buttons[i] ? pad.buttons[i].value || (pad.buttons[i].pressed ? 1 : 0) : 0);
       const g = std ? Math.max(bv(7), btn(pad, 0) ? 1 : 0) : (btn(pad, 0) ? 1 : 0);
       const b = std ? Math.max(bv(6), btn(pad, 2) ? 1 : 0) : (btn(pad, 2) ? 1 : 0);
@@ -229,14 +283,14 @@ function readPads(h) {
       if (Math.abs(sx) > 0.3 || g > 0.2 || pad.buttons.some((x) => x.pressed)) I.device = 'pad';
     }
   }
-  return { steer, gas, brake };
+  return { steer, gas, brake, dpad };
 }
 
 I.update = function (dt) {
   prev = held;
   held = {};
   for (const code of keysDown) (KEYMAP[code] || []).forEach((a) => { held[a] = true; });
-  const kbSteer = (held.right ? 1 : 0) - (held.left ? 1 : 0);
+  const kbDir = (held.right ? 1 : 0) - (held.left ? 1 : 0);
   const kbGas = held.gas ? 1 : 0, kbBrake = held.brake ? 1 : 0;
   for (const a in touch.held) if (touch.held[a]) held[a] = true;
   const padHeld = {};
@@ -244,7 +298,7 @@ I.update = function (dt) {
   for (const a in padHeld) held[a] = true;
 
   // steer: strongest source wins
-  let steer = kbSteer;
+  let steer = rampDigital(kbDir || pads.dpad, dt);
   if (Math.abs(touch.steer) > Math.abs(steer)) steer = touch.steer;
   if (Math.abs(pads.steer) > Math.abs(steer)) steer = pads.steer;
   let gas = Math.max(kbGas, touch.held.gas ? 1 : 0, pads.gas);
