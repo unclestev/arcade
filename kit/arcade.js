@@ -121,7 +121,7 @@ function build() {
   E.shareGo = h('button', { class: 'ax-btn primary' }, 'POST');
   E.share = h('div', { class: 'ax-modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'axShareTitle' },
     h('div', { class: 'ax-sheet' }, h('div', { class: 'ax-head' }, h('h2', { id: 'axShareTitle', text: 'POST TO NOSTR?' })),
-      h('p', { class: 'ax-note', text: 'This public note will be signed by your signer and posted to your relays:' }), E.sharePreview,
+      h('p', { class: 'ax-note', text: 'This public note will be signed by your signer and posted to Nostr:' }), E.sharePreview,
       h('div', { class: 'ax-btnrow' }, E.shareGo, h('button', { class: 'ax-btn', onclick: () => { E.share.hidden = true; } }, 'CANCEL'))));
   E.share.hidden = true;
 
@@ -199,7 +199,7 @@ async function loadBoard() {
           detail ? h('small', { text: detail }) : null),
         h('span', { class: 'ax-pts', text: fmt(r.score) })));
     });
-  } catch (e) { if (token === UI.token) E.note.textContent = 'Could not reach the relays. Check your connection and try again.'; }
+  } catch (e) { if (token === UI.token) E.note.textContent = "Couldn't load the leaderboard. Check your connection and try again."; }
 }
 
 async function renderAccount() {
@@ -369,20 +369,20 @@ export function createArcade(gameId, { rules, preview = false, onOpen, onClose }
       const text = result.shareText(!!run.submitted);
       if (!(await confirmShare(text))) return;
       status(st, 'Approve the note in your signer…');
-      try { const n = await N.postNote(text, { game: gameId, url: gameUrl }); status(st, n ? `Shared to ${n} relay${n === 1 ? '' : 's'}.` : 'No relay accepted the note.', n ? 'ok' : 'bad'); }
+      try { const n = await N.postNote(text, { game: gameId, url: gameUrl }); status(st, n ? 'Shared to Nostr ✓' : "Couldn't share right now. Try again in a minute.", n ? 'ok' : 'bad'); }
       catch (e) { status(st, e.message || 'Could not share.', 'bad'); }
     });
+    // Returns false when nothing was saved, so the caller can let the player try again.
     const posted = (r, label) => {
+      if (!r.relays) { status(st, "Your run checked out, but the score couldn't be saved right now. Try again in a minute.", 'bad'); return false; }
       run.submitted = true;
-      if (result && result.run === run) {
-        post.hidden = true; guestForm.hidden = true;
-        status(st, r.relays ? `${label} ✓ Posted to ${r.relays} relay${r.relays === 1 ? '' : 's'}.` : 'Verified ✓ but no relay accepted it. Try again later.', r.relays ? 'ok' : 'bad');
-      }
+      if (result && result.run === run) { post.hidden = true; guestForm.hidden = true; status(st, `${label} ✓ You're on the leaderboard.`, 'ok'); }
+      return true;
     };
     post.addEventListener('click', async () => {
       post.disabled = true;
       status(st, 'Approve the request in your signer. The referee will replay your run.');
-      try { posted(await N.submitVerified({ game: gameId, board: run.board, ticket: run.ticket, rules, replay: await result.replay(), score }), 'Verified'); }
+      try { if (!posted(await N.submitVerified({ game: gameId, board: run.board, ticket: run.ticket, rules, replay: await result.replay(), score }), 'Verified')) post.disabled = false; }
       catch (e) { post.disabled = false; status(st, e.message || 'Could not post the score.', 'bad'); }
     });
     const postGuest = async () => {
@@ -391,13 +391,13 @@ export function createArcade(gameId, { rules, preview = false, onOpen, onClose }
       N.setGuestName(n.name); nameIn.value = n.name;
       guestPost.disabled = true; nameIn.disabled = true;
       status(st, 'The referee is replaying your run…');
-      try { posted(await N.submitGuest({ game: gameId, board: run.board, ticket: run.ticket, rules, replay: await result.replay(), score, name: n.name, guestId: run.guestId }), `Verified as ${n.name} (guest)`); }
+      try { if (!posted(await N.submitGuest({ game: gameId, board: run.board, ticket: run.ticket, rules, replay: await result.replay(), score, name: n.name, guestId: run.guestId }), `Verified as ${n.name}`)) { guestPost.disabled = false; nameIn.disabled = false; } }
       catch (e) { guestPost.disabled = false; nameIn.disabled = false; status(st, e.message || 'Could not post the score.', 'bad'); }
     };
     guestPost.addEventListener('click', postGuest);
     nameIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); postGuest(); } });
 
-    if (run.submitted) { status(st, 'Verified and posted.', 'ok'); return; }
+    if (run.submitted) { status(st, "Verified ✓ You're on the leaderboard.", 'ok'); return; }
     if (!N.refereeReady()) { status(st, `The verified leaderboard opens once the ${ARCADE_NAME} referee is set up.`); return; }
     if (!run.ranked) { status(st, 'This run is unranked: the referee was offline when it started.'); return; }
     if (!(score > 0)) { status(st, 'Score some points to post a run.'); return; }

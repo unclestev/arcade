@@ -9,6 +9,15 @@ export const GAMES = {
     boards: [
       { id: 'classic', label: 'Classic', stats: [['group', 'Group']] },
       { id: 'nextgen', label: 'Next Gen', stats: [['group', 'Group'], ['combo', 'Combo']] },
+      { id: 'bitcoin', label: 'Bitcoin', stats: [['group', 'Block'], ['combo', 'Combo']] },
     ],
+    // Extra hub cabinets for special editions of this game. They share its sign-in and leaderboards.
+    editions: [{
+      title: 'Bomber: Bitcoin Edition',
+      path: 'bomber/?mode=bitcoin',
+      cover: 'bomber/cover-bitcoin.jpg',
+      board: 'bitcoin',
+      blurb: 'Satoshi is mining coins off the rig. Stack every falling bitcoin in your cold wallets before the price crashes. Next Gen rules, its own leaderboard.',
+    }],
   },
 };

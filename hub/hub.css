@@ -79,3 +79,7 @@ main{padding-block:26px 8px}
 .foot{border-top:1px solid var(--line);padding-block:18px 26px;color:var(--muted);font-size:18px}
 .foot p{margin:4px 0}
 .foot code{font-size:13px;word-break:break-all}
+/* special editions (e.g. Bomber: Bitcoin Edition) */
+.cab.edition{border-color:rgba(247,147,26,.55)}
+.cab.edition h3{color:#f7931a}
+.cab.edition .chips span{border-color:rgba(247,147,26,.55);color:#ffc067}

@@ -1,7 +1,7 @@
 // Bomber — browser app: rendering, sound, input, menus and the Nostr screens.
 // Game rules live in sim.js so the referee can replay any run exactly.
 
-import { TICK, INPUT_MAX, GROUPS, CLASSIC, NEXTGEN, RULES, createGame, startWave, step } from './sim.js';
+import { TICK, INPUT_MAX, GROUPS, CLASSIC, NEXTGEN, RULES, MODES, usesNextGenRules as isNG, createGame, startWave, step } from './sim.js';
 import { encodeReplay } from './replay.js';
 import { createArcade } from '../../kit/arcade.js';
 
@@ -48,8 +48,10 @@ const modalOpen = () => !$('settings').hidden || arcade.isSheetOpen();
 // ---------- app state ----------
 const S = {
   mode: 'classic', paused: false, u: 0.5, uPrev: 0.5, uv: 0, kv: 0, time: 0, menuSel: 0, overAt: 0,
-  hi: { classic: store.get('fusebox.hi', 0), nextgen: store.get('fusebox.hi.ng', 0) },
+  hi: { classic: store.get('fusebox.hi', 0), nextgen: store.get('fusebox.hi.ng', 0), bitcoin: store.get('fusebox.hi.btc', 0) },
 };
+const HI_KEY = { classic: 'fusebox.hi', nextgen: 'fusebox.hi.ng', bitcoin: 'fusebox.hi.btc' };
+const MODE_NAME = { classic: 'Classic', nextgen: 'Next Gen', bitcoin: 'Bitcoin Edition' };
 let G = null;     // the running game (sim.js), null on the menu
 let run = null;   // replay being recorded for the referee
 let acc = 0;      // fixed-step accumulator
@@ -120,7 +122,18 @@ const ngs = {
   over() { if (AC) [392, 349, 311, 262, 196].forEach((f, i) => osc(master, now() + i * 0.22, f, 0.35, 'triangle', 0.16)); },
   start() { if (AC) { const t = now(); osc(master, t, 220, 0.35, 'sawtooth', 0.08, 880); nz(master, t, 0.35, 0.1, 'highpass', 800, 7000); } },
 };
-const SND = () => S.mode === 'nextgen' ? ngs : sfx;
+// Bitcoin Edition: coin clinks instead of splashes, a market crash instead of a bang.
+const btcs = Object.assign({}, ngs, {
+  drop() { if (AC) osc(master, now(), 2400, 0.035, 'sine', 0.035); },
+  catch(n, gold) {
+    if (!AC) return; const t = now(), f = 880 * Math.pow(2, (n % 12) / 12);
+    osc(master, t, f, 0.13, 'sine', 0.14); osc(master, t, f * 2.76, 0.07, 'sine', 0.05); osc(master, t + 0.035, f * 1.5, 0.1, 'triangle', 0.06);
+    if (gold) [1, 1.5, 2, 3].forEach((m, i) => osc(master, t + 0.05 + i * 0.04, f * m, 0.12, 'square', 0.03));
+  },
+  boom() { if (!AC) return; const t = now(); nz(master, t, 0.6, 0.45, 'lowpass', 2400, 90); osc(master, t, 520, 0.55, 'sawtooth', 0.12, 60); },
+});
+const NS = () => S.mode === 'bitcoin' ? btcs : ngs;
+const SND = () => S.mode === 'classic' ? sfx : NS();
 function setFuse(on) {
   if (!AC || on === fuseOn) return; fuseOn = on;
   fuseGain.gain.setTargetAtTime(on ? 0.035 : 0, AC.currentTime, 0.04);
@@ -137,7 +150,7 @@ function musicStep(i, t) {
 }
 function musicTick() {
   if (!AC || !musicBus) return;
-  const want = settings.music && settings.sound && S.mode === 'nextgen' && G && ['ready', 'play', 'clear'].includes(G.state)
+  const want = settings.music && settings.sound && isNG(S.mode) && G && ['ready', 'play', 'clear'].includes(G.state)
     && !S.paused && !modalOpen() && !document.hidden;
   if (want !== music.on) {
     music.on = want; musicBus.gain.setTargetAtTime(want ? 0.5 : 0, AC.currentTime, 0.2);
@@ -179,22 +192,24 @@ function showMsg(title, sub, hint) {
 }
 function updateHiLabels() {
   $('hiTop').textContent = fmt(S.hi[S.mode]); $('hiMenu').textContent = fmt(S.hi.classic); $('hiMenuNg').textContent = fmt(S.hi.nextgen);
+  $('hiMenuBtc').textContent = fmt(S.hi.bitcoin);
 }
 function setView(v) {
-  document.body.dataset.view = v;
-  CL.cv.hidden = v !== 'classic'; NG.cv.hidden = v !== 'nextgen';
+  const ng = isNG(v);
+  document.body.dataset.view = ng ? 'nextgen' : 'classic';
+  document.body.dataset.skin = v === 'bitcoin' ? 'bitcoin' : '';
+  CL.cv.hidden = ng; NG.cv.hidden = !ng;
+  NG.setSkin(v === 'bitcoin' ? 'btc' : 'city');
   const brand = $('brand'); brand.textContent = 'BOMBER';
-  if (v === 'nextgen') { brand.append(' '); brand.append(el('em', '', 'NG')); }
+  if (ng) { brand.append(' '); brand.append(el('em', '', v === 'bitcoin' ? 'BTC' : 'NG')); }
   layout();
 }
-function updateMenuSel() {
-  $('btnClassic').classList.toggle('sel', S.menuSel === 0);
-  $('btnNextGen').classList.toggle('sel', S.menuSel === 1);
-}
+const MENU_BTNS = ['btnClassic', 'btnNextGen', 'btnBitcoin']; // same order as MODES
+function updateMenuSel() { MENU_BTNS.forEach((id, i) => $(id).classList.toggle('sel', S.menuSel === i)); }
 
 function startGame(mode) {
   ensureAudio();
-  S.mode = mode; E = mode === 'nextgen' ? NG : CL; setView(mode);
+  S.mode = mode; E = isNG(mode) ? NG : CL; setView(mode);
   // A rankable run: the kit asks the referee for a seed; if it arrives before the first bomb, restart with it.
   run = arcade.newRun(mode, seed => {
     if (!G || G.tick !== 0 || G.state !== 'ready' || G.mode !== mode) return false;
@@ -212,7 +227,8 @@ function startGame(mode) {
 }
 function showReady() {
   const g = GROUPS[G.group];
-  showMsg('GROUP ' + (G.group + 1), g.n + ' bombs · ' + g.pts + (g.pts === 1 ? ' point' : ' points') + ' each', hintText());
+  if (S.mode === 'bitcoin') showMsg('BLOCK ' + (G.group + 1), g.n + ' coins · ' + g.pts + (g.pts === 1 ? ' sat' : ' sats') + ' each', hintText());
+  else showMsg('GROUP ' + (G.group + 1), g.n + ' bombs · ' + g.pts + (g.pts === 1 ? ' point' : ' points') + ' each', hintText());
 }
 function action() {
   if (S.paused || modalOpen() || !G || G.state !== 'ready') return;
@@ -232,7 +248,8 @@ function handleEvents() {
       case 'lose': SND().lose(); buzz(180); break;
       case 'bonusBucket': SND().bonus(); break;
       case 'clear':
-        if (G.mode === 'nextgen') { showMsg('WAVE CLEAR', '+' + e.bonus + ' clear bonus', null); ngs.clear(); }
+        if (G.mode === 'bitcoin') { showMsg('BLOCK MINED', '+' + e.bonus + ' block reward', null); btcs.clear(); }
+        else if (G.ng) { showMsg('WAVE CLEAR', '+' + e.bonus + ' clear bonus', null); ngs.clear(); }
         else { showMsg('GROUP ' + (G.group + 1) + ' CLEAR', 'Score ' + G.score, null); sfx.clear(); }
         break;
     }
@@ -242,12 +259,15 @@ function handleEvents() {
 function gameOver() {
   S.overAt = S.time;
   const best = G.score > S.hi[S.mode];
-  if (best) { S.hi[S.mode] = G.score; store.set(S.mode === 'nextgen' ? 'fusebox.hi.ng' : 'fusebox.hi', G.score); updateHiLabels(); }
+  if (best) { S.hi[S.mode] = G.score; store.set(HI_KEY[S.mode], G.score); updateHiLabels(); }
+  const btc = S.mode === 'bitcoin';
+  $('overLabel').textContent = btc ? 'Sats stacked' : 'Score';
+  $('stGroupLabel').textContent = btc ? 'Block' : 'Group';
   $('overScore').textContent = fmt(G.score);
   const hiEl = $('overHi'); hiEl.textContent = '';
   if (best && G.score > 0) hiEl.append(el('b', '', 'NEW HIGH SCORE'));
   else { hiEl.append('HI SCORE '); hiEl.append(el('b', '', fmt(S.hi[S.mode]))); }
-  const ngMode = S.mode === 'nextgen';
+  const ngMode = G.ng;
   $('overStats').hidden = !ngMode;
   if (ngMode) { $('stBest').textContent = G.best; $('stCaught').textContent = G.caught; $('stGroup').textContent = G.maxGroup + 1; }
   SND().over(); show('over');
@@ -255,8 +275,11 @@ function gameOver() {
   arcade.showResult($('overNostr'), {
     run: thisRun, score,
     replay: () => encodeReplay(thisRun.mode, thisRun.seed, thisRun.segs, Uint16Array.from(thisRun.inputs)),
-    shareText: verified => `I scored ${fmt(score)} in Bomber ${thisRun.mode === 'nextgen' ? 'Next Gen' : 'Classic'}${verified ? ' (verified)' : ''}: ` +
-      `reached group ${stats.group}${thisRun.mode === 'nextgen' ? ', best combo ' + stats.combo : ''}.\n\nPlay: ${arcade.gameUrl}\n#bomber`,
+    shareText: verified => thisRun.mode === 'bitcoin'
+      ? `I stacked ${fmt(score)} sats in Bomber: Bitcoin Edition${verified ? ' (verified)' : ''}: reached block ${stats.group}, best combo ${stats.combo}.` +
+        `\n\nPlay: ${arcade.gameUrl}?mode=bitcoin\n#bomber #bitcoin`
+      : `I scored ${fmt(score)} in Bomber ${MODE_NAME[thisRun.mode]}${verified ? ' (verified)' : ''}: ` +
+        `reached group ${stats.group}${thisRun.mode === 'nextgen' ? ', best combo ' + stats.combo : ''}.\n\nPlay: ${arcade.gameUrl}\n#bomber`,
   });
 }
 function toMenu() {
@@ -395,12 +418,44 @@ const PW = {
   slow:   { label: 'SLOW-MO', color: '#b18cff', time: 7 },
   shield: { label: 'SHIELD UP', color: '#4ee08a', time: 0 },
 };
+// Bitcoin Edition: a brighter blue night that deepens toward space as the blocks go by, so orange coins always stand out.
+const BTC_SKY = [
+  ['#2a56b0', '#4f7fd0', '#a3b8ec'], ['#2850a8', '#4a70c6', '#aaa8e4'], ['#284598', '#4a62b8', '#b39cda'],
+  ['#263b88', '#4656a8', '#b18ece'], ['#22307a', '#41489a', '#a87ec2'], ['#1e2770', '#3c3c8e', '#9c6eb6'],
+  ['#1a1e62', '#36307e', '#8e5ea8'], ['#151651', '#2f2670', '#7e4e9a'],
+].map(p => p.map(hex));
+const PW_BTC = {
+  wide:   { label: 'WHALE WALLETS', color: '#38d8ff', time: 10 },
+  slow:   { label: 'HALVING', color: '#b18cff', time: 7 },
+  shield: { label: 'HODL SHIELD', color: '#4ee08a', time: 0 },
+};
+const ORANGE = '#f7931a';
 const FONT = '"Chakra Petch", system-ui, sans-serif';
 const NGc = NEXTGEN;
+// The bitcoin sign, drawn as a tilted B with two strokes through the top and bottom (no font needs the ₿ character).
+function btcGlyph(c, x, y, size, col, shadow) {
+  c.save(); c.translate(x, y); c.rotate(-0.24);
+  c.font = `700 ${size}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const bw = Math.max(1, size * 0.085), bh = size * 0.16;
+  const draw = (dx, dy, color) => {
+    c.fillStyle = color; c.fillText('B', dx, dy + size * 0.05);
+    for (const bx of [-0.17, 0.0]) { c.fillRect(dx + bx * size, dy - size * 0.5, bw, bh); c.fillRect(dx + bx * size, dy + size * 0.38, bw, bh); }
+  };
+  if (shadow) draw(size * 0.05, size * 0.06, shadow);
+  draw(0, 0, col);
+  c.restore();
+}
+function bolt(c, x, y, s, col) {
+  c.fillStyle = col; c.beginPath();
+  c.moveTo(x + 2 * s, y - 9 * s); c.lineTo(x - 5 * s, y + 1 * s); c.lineTo(x - 0.5 * s, y + 1 * s); c.lineTo(x - 2 * s, y + 9 * s);
+  c.lineTo(x + 5 * s, y - 1.5 * s); c.lineTo(x + 0.5 * s, y - 1.5 * s); c.closePath(); c.fill();
+}
 
 const NG = {
   cv: $('ng'), c: null, W: 480, H: 540, ox: 0, scale: 1,
   layers: null, vig: null, stars: [], beacons: [], V: null,
+  skin: 'city', P: PW, // 'city' = Next Gen, 'btc' = Bitcoin Edition (same rules, different look)
+  setSkin(skin) { this.skin = skin; this.P = skin === 'btc' ? PW_BTC : PW; },
   displayX() { return NGc.LO + Math.round(S.u * INPUT_MAX) / INPUT_MAX * (NGc.HI - NGc.LO); },
   uFromClientX(cx) { const r = this.cv.getBoundingClientRect(); return ((cx - r.left) / r.width * this.W - this.ox - NGc.LO) / (NGc.HI - NGc.LO); },
   rect() { return this.cv.getBoundingClientRect(); },
@@ -448,13 +503,26 @@ const NG = {
   },
   reset() {
     this.V = { parts: [], pops: [], light: 0, lightT: 0, shake: 0, disp: 0, tilt: 0, slosh: 0,
-      pal: SKY[0].map(a => a.slice()), bv: new Map(), bobT: 0 };
+      pal: this.sky()[0].map(a => a.slice()), bv: new Map(), bobT: 0, rockets: [], rekt: false, chart: this.newChart() };
   },
+  sky() { return this.skin === 'btc' ? BTC_SKY : SKY; },
   bombVis(b) {
     let v = this.V.bv.get(b.id);
-    if (!v) { v = { rot: rnd(-0.3, 0.3), spin: rnd(-2.5, 2.5), ph: rnd(0, TAU), emit: 0 }; this.V.bv.set(b.id, v); }
+    if (!v) {
+      const spin = this.skin === 'btc' ? (Math.random() < 0.5 ? -1 : 1) * rnd(2.5, 5) : rnd(-2.5, 2.5);
+      v = { rot: rnd(-0.3, 0.3), spin, ph: rnd(0, TAU), emit: rnd(0, 0.1) }; this.V.bv.set(b.id, v);
+    }
     return v;
   },
+  // Background price chart (Bitcoin Edition): pumps on catches, dumps on misses. Purely decorative.
+  newChart() {
+    const ch = { p: 0, T: 0, candles: [] };
+    let p = -0.4;
+    for (let i = 0; i < 140; i++) { const o = p; p += (Math.random() - 0.42) * 0.03; ch.candles.push({ o, c: p, h: Math.max(o, p) + Math.random() * 0.01, l: Math.min(o, p) - Math.random() * 0.01 }); }
+    ch.p = p; ch.cur = { o: p, c: p, h: p, l: p };
+    return ch;
+  },
+  market(d) { const ch = this.V.chart; ch.p += d; const k = ch.cur; k.c = ch.p; k.h = Math.max(k.h, ch.p); k.l = Math.min(k.l, ch.p); },
 
   // ---------- effects ----------
   part(o) { if (this.V.parts.length < 1100) this.V.parts.push(o); },
@@ -475,6 +543,33 @@ const NG = {
     this.V.shake = Math.min(14, this.V.shake + 7);
     ngs.boom(); buzz(50);
   },
+  // Bitcoin Edition miss: a red market crash instead of a fireball, with the coin shattering into gold shards.
+  crash(x, y) {
+    const V = this.V;
+    this.part({ kind: 'flash', x, y, r: 95, life: 0.26, max: 0.26, add: true, red: true });
+    this.part({ kind: 'ring', x, y, r0: 10, r1: 120, life: 0.45, max: 0.45, add: true, col: '255,80,110' });
+    for (let i = 0; i < 30; i++) {
+      const a = rnd(0, TAU), sp = rnd(120, 440);
+      this.part({ kind: 'dot', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, g: 380, drag: 2.2, life: rnd(0.35, 0.9), max: 0.9,
+        size: rnd(1.4, 3), col: pick(['#ffd6dc', '#ff5470', '#ff2e55', '#ffb347']), add: true });
+    }
+    for (let i = 0; i < 9; i++) { const a = rnd(Math.PI * 1.1, Math.PI * 1.9); this.part({ kind: 'chunk', x, y, vx: Math.cos(a) * rnd(120, 300), vy: Math.sin(a) * rnd(160, 340), g: 700, drag: 0.4,
+      life: rnd(0.6, 1.1), max: 1.1, size: rnd(2.5, 4.5), rot: rnd(0, TAU), vr: rnd(-12, 12), col: pick([ORANGE, '#ffd27a', '#b35c00']) }); }
+    for (let i = 0; i < 8; i++) this.part({ kind: 'smoke', x: x + rnd(-10, 10), y: y + rnd(-8, 4), vx: rnd(-40, 40), vy: rnd(-70, -20), g: -8, drag: 1,
+      life: rnd(0.9, 1.5), max: 1.5, size: rnd(8, 15), grow: 24, col: '60,30,50', a: 0.5 });
+    if (V.rekt) { V.rekt = false; this.pop(clamp(x, 70, 410), Math.min(y, NGc.GROUND - 30) - 30, 'REKT', '#ff5470', 34, 1.2); }
+    this.market(-0.06);
+    V.lightT = Math.min(1.2, V.lightT + 0.55);
+    V.shake = Math.min(14, V.shake + 7);
+    btcs.boom(); buzz(50);
+  },
+  coinBurst(x, y, half, gold) {
+    const cols = gold ? ['#e8fbff', '#9fe8ff', '#4fb8f0'] : ['#fff2c2', '#ffd27a', ORANGE];
+    for (let i = 0; i < 14; i++) this.part({ kind: 'dot', x: x + rnd(-half * 0.6, half * 0.6), y, vx: rnd(-90, 90), vy: rnd(-260, -110), g: 650, drag: 0.6,
+      life: rnd(0.4, 0.75), max: 0.75, size: rnd(1.4, 2.6), col: pick(cols), add: true });
+    for (let i = 0; i < 4; i++) this.part({ kind: 'chunk', x: x + rnd(-half * 0.4, half * 0.4), y: y - 2, vx: rnd(-70, 70), vy: rnd(-230, -140), g: 700, drag: 0.4,
+      life: rnd(0.4, 0.6), max: 0.6, size: rnd(3, 4.5), rot: rnd(0, TAU), vr: rnd(-14, 14), col: gold ? '#9fe8ff' : '#ffc23a' });
+  },
   splash(x, y, half) {
     for (let i = 0; i < 13; i++) this.part({ kind: 'dot', x: x + rnd(-half * 0.6, half * 0.6), y, vx: rnd(-90, 90), vy: rnd(-260, -110), g: 650, drag: 0.6,
       life: rnd(0.4, 0.75), max: 0.75, size: rnd(1.5, 2.7), col: pick(['#8fdcff', '#c6efff', '#4fb8f0']) });
@@ -486,42 +581,47 @@ const NG = {
       this.part({ kind: 'dot', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, g: 0, drag: 3, life: rnd(0.3, 0.6), max: 0.6, size: rnd(1.2, 2.4), col, add: true }); }
   },
   onEvent(e) {
-    const half = G.pw.wide > 0 ? NGc.HALF_WIDE : NGc.HALF;
+    const half = G.pw.wide > 0 ? NGc.HALF_WIDE : NGc.HALF, btc = this.skin === 'btc';
     switch (e.t) {
-      case 'drop': ngs.drop(); break;
+      case 'drop': NS().drop(); break;
       case 'catch':
-        this.splash(e.x, e.top, half);
-        this.pop(e.x, e.top - 16, '+' + e.pts, e.gold ? '#ffd166' : '#e8f4ff', e.gold ? 22 : 17, 0.7);
-        ngs.catch(e.n, e.gold); break;
-      case 'combo': this.pop(240, 250, 'COMBO ×' + e.m, '#ffd166', 34, 1.1); ngs.combo(e.m); break;
-      case 'explode': this.explode(e.x, e.y); break;
+        if (btc) { this.coinBurst(e.x, e.top, half, e.gold); this.market(e.gold ? 0.035 : 0.012); }
+        else this.splash(e.x, e.top, half);
+        this.pop(e.x, e.top - 16, '+' + e.pts, btc ? (e.gold ? '#9fe8ff' : '#ffd166') : (e.gold ? '#ffd166' : '#e8f4ff'), e.gold ? 22 : 17, 0.7);
+        NS().catch(e.n, e.gold); break;
+      case 'combo': this.pop(240, 250, (btc ? 'STACKING ×' : 'COMBO ×') + e.m, '#ffd166', 34, 1.1); NS().combo(e.m); break;
+      case 'miss': this.V.rekt = true; break;
+      case 'explode': if (btc) this.crash(e.x, e.y); else this.explode(e.x, e.y); break;
+      case 'clear': if (btc) this.V.rockets.push({ t: 0, x0: rnd(60, 200), trail: 0 }); break;
       case 'shieldSave':
         for (let i = 0; i < 26; i++) this.part({ kind: 'chunk', x: e.x + rnd(-60, 60), y: NGc.GROUND - 5, vx: rnd(-160, 160), vy: rnd(-260, -80), g: 600, drag: 0.5,
           life: rnd(0.5, 0.9), max: 0.9, size: rnd(2, 4), rot: rnd(0, TAU), vr: rnd(-10, 10), col: '#4ee08a' });
-        this.pop(240, 290, 'SHIELD SAVED YOU', '#4ee08a', 24, 1.2); ngs.shield(); break;
+        this.pop(240, 290, btc ? 'HODL! SAVED' : 'SHIELD SAVED YOU', '#4ee08a', 24, 1.2); NS().shield(); break;
       case 'power': {
-        const d = PW[e.type];
+        const d = this.P[e.type];
         this.pop(240, 290, d.label, d.color, 26, 1.2);
         for (let i = 0; i < 22; i++) { const a = rnd(0, TAU), sp = rnd(60, 220);
           this.part({ kind: 'dot', x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, g: 80, drag: 2, life: rnd(0.4, 0.8), max: 0.8, size: rnd(1.4, 2.6), col: d.color, add: true }); }
-        ngs.power(); buzz(25); break;
+        NS().power(); buzz(25); break;
       }
-      case 'powerLost': this.poof(e.x, e.y, PW[e.type].color); break;
+      case 'powerLost': this.poof(e.x, e.y, this.P[e.type].color); break;
       case 'lose': {
         const top = NGc.TOPS[e.bucket], x = this.displayX();
+        const cols = btc ? ['#3d4452', '#6b7487', '#1b1e26', ORANGE] : ['#c9cfdb', '#8a93a6', '#e9edf5'];
         for (let i = 0; i < 16; i++) this.part({ kind: 'chunk', x: x + rnd(-24, 24), y: top + 10, vx: rnd(-170, 170), vy: rnd(-280, -90), g: 700, drag: 0.4,
-          life: rnd(0.6, 1.1), max: 1.1, size: rnd(2.5, 5), rot: rnd(0, TAU), vr: rnd(-12, 12), col: pick(['#c9cfdb', '#8a93a6', '#e9edf5']) });
-        this.splash(x, top, 30); this.splash(x, top + 10, 30);
+          life: rnd(0.6, 1.1), max: 1.1, size: rnd(2.5, 5), rot: rnd(0, TAU), vr: rnd(-12, 12), col: pick(cols) });
+        if (btc) { this.coinBurst(x, top, 30, false); this.coinBurst(x, top + 10, 30, false); }
+        else { this.splash(x, top, 30); this.splash(x, top + 10, 30); }
         this.V.shake = Math.min(16, this.V.shake + 9); break;
       }
-      case 'bonusBucket': this.pop(240, 320, '+1 BUCKET', '#8fdcff', 24, 1.2); break;
+      case 'bonusBucket': this.pop(240, 320, btc ? '+1 WALLET' : '+1 BUCKET', btc ? '#ffd166' : '#8fdcff', 24, 1.2); break;
     }
   },
 
   // ---------- per-frame visuals ----------
   update(dt) {
     const V = this.V; if (!V) return;
-    const target = SKY[G ? G.group : 0], k = Math.min(1, dt * 1.2);
+    const target = this.sky()[G ? G.group : 0], k = Math.min(1, dt * 1.2);
     for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) V.pal[i][j] += (target[i][j] - V.pal[i][j]) * k;
     const half = G && G.pw.wide > 0 ? NGc.HALF_WIDE : NGc.HALF;
     const uvx = S.uv * (NGc.HI - NGc.LO);
@@ -532,7 +632,13 @@ const NG = {
         const v = this.bombVis(b);
         if (running()) v.rot += v.spin * dt;
         v.emit -= dt;
-        if (v.emit <= 0 && v.tipX !== undefined) {
+        if (this.skin === 'btc') {
+          if (v.emit <= 0 && v.tipX !== undefined) {
+            v.emit = b.gold ? 0.05 : 0.11; const a = rnd(0, TAU);
+            this.part({ kind: 'dot', x: v.tipX + Math.cos(a) * 9, y: v.tipY + Math.sin(a) * 9, vx: rnd(-20, 20), vy: rnd(-50, -10), g: 0, drag: 2, life: rnd(0.25, 0.45), max: 0.45,
+              size: rnd(0.9, 1.6), col: b.gold ? '#c8f4ff' : pick(['#fff2c2', '#ffd27a']), add: true });
+          }
+        } else if (v.emit <= 0 && v.tipX !== undefined) {
           v.emit = 0.035;
           this.part({ kind: 'dot', x: v.tipX, y: v.tipY, vx: rnd(-45, 45), vy: rnd(-110, -30), g: 240, drag: 1.5, life: rnd(0.2, 0.4), max: 0.4,
             size: rnd(1, 1.8), col: pick(['#ffe39a', '#ffb347', '#ff7a1a']), add: true });
@@ -541,6 +647,18 @@ const NG = {
       if (V.bv.size > G.bombs.length + 40) { const live = new Set(G.bombs.map(b => b.id)); for (const id of V.bv.keys()) if (!live.has(id)) V.bv.delete(id); }
       V.disp += (G.score - V.disp) * Math.min(1, dt * 10);
       if (Math.abs(G.score - V.disp) < 0.5) V.disp = G.score;
+    }
+    if (this.skin === 'btc') {
+      const ch = V.chart;
+      this.market((Math.random() - 0.46) * 0.004);
+      ch.T += dt;
+      if (ch.T >= 0.5) { ch.T = 0; ch.candles.push(ch.cur); if (ch.candles.length > 160) ch.candles.shift(); ch.cur = { o: ch.p, c: ch.p, h: ch.p, l: ch.p }; }
+      for (let i = V.rockets.length - 1; i >= 0; i--) {
+        const r = V.rockets[i]; r.t += dt / 1.7;
+        if (r.t >= 1) { V.rockets.splice(i, 1); continue; }
+        const [x, y] = this.rocketPos(r, r.t);
+        this.part({ kind: 'dot', x, y, vx: rnd(-20, 20), vy: rnd(10, 50), g: 0, drag: 1.5, life: rnd(0.3, 0.6), max: 0.6, size: rnd(1, 2.2), col: pick(['#fff2c2', '#ffb347', ORANGE]), add: true });
+      }
     }
     const a = V.parts, Gd = NGc.GROUND;
     for (let i = a.length - 1; i >= 0; i--) {
@@ -568,6 +686,23 @@ const NG = {
     if (settings.shake && V.shake > 0.2) { sx = rnd(-1, 1) * V.shake; sy = rnd(-1, 1) * V.shake; }
     c.setTransform(s, 0, 0, s, sx * s, sy * s);
     c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
+    const btc = this.skin === 'btc';
+    if (btc) this.drawMoonSky(c, t); else this.drawCity(c, t);
+    // street
+    const gg = c.createLinearGradient(0, Gd, 0, H);
+    gg.addColorStop(0, btc ? '#3b3a52' : '#45414f'); gg.addColorStop(1, btc ? '#1f1e2e' : '#25222c');
+    c.fillStyle = gg; c.fillRect(-20, Gd, W + 40, H - Gd + 20);
+    c.fillStyle = 'rgba(255,255,255,.1)'; c.fillRect(-20, Gd, W + 40, 2);
+    // play field content, in sim coordinates
+    c.save(); c.translate(ox, 0);
+    if (btc) this.drawSatoshi(c, t); else this.drawSparky(c, t);
+    c.restore();
+    if (btc) this.drawRig(c, t); else this.drawParapet(c, t);
+    c.save(); c.translate(ox, 0);
+    this.drawField(c, t, btc);
+  },
+  drawCity(c, t) {
+    const W = this.W, H = this.H, V = this.V, Gd = NGc.GROUND;
     // sky, stars, moon
     const p = V.pal, sg = c.createLinearGradient(0, 0, 0, Gd);
     sg.addColorStop(0, rgb(p[0])); sg.addColorStop(0.55, rgb(p[1])); sg.addColorStop(1, rgb(p[2]));
@@ -592,17 +727,10 @@ const NG = {
     const hz = c.createLinearGradient(0, Gd - 120, 0, Gd);
     hz.addColorStop(0, rgb(p[2], 0)); hz.addColorStop(1, rgb(p[2], 0.22));
     c.fillStyle = hz; c.fillRect(-20, Gd - 120, W + 40, 120);
-    // street
-    const gg = c.createLinearGradient(0, Gd, 0, H);
-    gg.addColorStop(0, '#45414f'); gg.addColorStop(1, '#25222c');
-    c.fillStyle = gg; c.fillRect(-20, Gd, W + 40, H - Gd + 20);
-    c.fillStyle = 'rgba(255,255,255,.1)'; c.fillRect(-20, Gd, W + 40, 2);
-    // play field content, in sim coordinates
-    c.save(); c.translate(ox, 0);
-    this.drawSparky(c, t);
-    c.restore();
-    this.drawParapet(c, t);
-    c.save(); c.translate(ox, 0);
+  },
+  // Everything in sim coordinates (already translated by ox), then the screen-space overlays and HUD.
+  drawField(c, t, btc) {
+    const W = this.W, H = this.H, s = this.scale, V = this.V, ox = this.ox;
     if (G.pw.shield) {
       const a = 0.55 + 0.2 * Math.sin(t * 3);
       const sh = c.createLinearGradient(0, Gd - 34, 0, Gd);
@@ -610,14 +738,15 @@ const NG = {
       c.fillStyle = sh; c.fillRect(0, Gd - 34, 480, 34);
       c.fillStyle = `rgba(150,255,190,${a})`; c.fillRect(0, Gd - 3, 480, 2);
     }
-    for (const b of G.bombs) this.drawBomb(c, b, t);
+    for (const b of G.bombs) { if (btc) this.drawCoin(c, b, t); else this.drawBomb(c, b, t); }
+    if (btc) for (const r of V.rockets) this.drawRocket(c, r);
     for (const pw of G.powers) this.drawPower(c, pw);
     if (inGame() || G.state === 'over') {
       const bx = this.displayX(), half = G.pw.wide > 0 ? NGc.HALF_WIDE : NGc.HALF;
       const blinkLast = G.state === 'boom' && !G.boomQ.length && (Math.floor(t * 6) & 1);
       for (let k = 0; k < G.buckets; k++) {
         if (blinkLast && k === G.buckets - 1) continue;
-        this.drawBucket(c, bx, NGc.TOPS[k], half, V.tilt * (1 + k * 0.15), V.slosh, G.pw.wide > 0, k === 0);
+        (btc ? this.drawWallet : this.drawBucket).call(this, c, bx, NGc.TOPS[k], half, V.tilt * (1 + k * 0.15), V.slosh, G.pw.wide > 0, k === 0);
       }
     }
     for (const q of V.parts) {
@@ -630,13 +759,19 @@ const NG = {
     c.globalCompositeOperation = 'lighter';
     for (const b of G.bombs) {
       const v = V.bv.get(b.id); if (!v || v.tipX === undefined) continue;
+      if (btc) {
+        const r = b.gold ? 34 : 26, fg = c.createRadialGradient(v.tipX, v.tipY, 6, v.tipX, v.tipY, r);
+        fg.addColorStop(0, b.gold ? 'rgba(140,220,255,.5)' : 'rgba(255,170,60,.4)'); fg.addColorStop(1, 'rgba(255,140,40,0)');
+        c.fillStyle = fg; c.fillRect(v.tipX - r, v.tipY - r, r * 2, r * 2);
+        continue;
+      }
       const fl = 0.75 + 0.25 * Math.sin(t * 40 + v.ph), r = 12 * fl;
       const fg = c.createRadialGradient(v.tipX, v.tipY, 0, v.tipX, v.tipY, r);
       fg.addColorStop(0, 'rgba(255,240,190,.95)'); fg.addColorStop(0.35, 'rgba(255,150,40,.55)'); fg.addColorStop(1, 'rgba(255,90,20,0)');
       c.fillStyle = fg; c.fillRect(v.tipX - r, v.tipY - r, r * 2, r * 2);
     }
     for (const pw of G.powers) {
-      const col = hex(PW[pw.type].color), g2 = c.createRadialGradient(pw.cx, pw.y, 0, pw.cx, pw.y, 30);
+      const col = hex(this.P[pw.type].color), g2 = c.createRadialGradient(pw.cx, pw.y, 0, pw.cx, pw.y, 30);
       g2.addColorStop(0, rgb(col, 0.45)); g2.addColorStop(1, rgb(col, 0));
       c.fillStyle = g2; c.fillRect(pw.cx - 30, pw.y - 30, 60, 60);
     }
@@ -645,7 +780,8 @@ const NG = {
       const al = q.life / q.max;
       if (q.kind === 'flash') {
         const r = q.r * (1.2 - 0.4 * al), fg = c.createRadialGradient(q.x, q.y, 0, q.x, q.y, r);
-        fg.addColorStop(0, `rgba(255,236,190,${0.75 * al})`); fg.addColorStop(0.4, `rgba(255,140,50,${0.4 * al})`); fg.addColorStop(1, 'rgba(255,80,20,0)');
+        if (q.red) { fg.addColorStop(0, `rgba(255,220,226,${0.75 * al})`); fg.addColorStop(0.4, `rgba(255,50,90,${0.42 * al})`); fg.addColorStop(1, 'rgba(255,30,70,0)'); }
+        else { fg.addColorStop(0, `rgba(255,236,190,${0.75 * al})`); fg.addColorStop(0.4, `rgba(255,140,50,${0.4 * al})`); fg.addColorStop(1, 'rgba(255,80,20,0)'); }
         c.fillStyle = fg; c.fillRect(q.x - r, q.y - r, r * 2, r * 2);
       } else if (q.kind === 'ring') {
         const r = q.r0 + (q.r1 - q.r0) * (1 - al);
@@ -657,7 +793,7 @@ const NG = {
     }
     c.restore();
     c.globalCompositeOperation = 'lighter';
-    if (V.light > 0.01) { c.fillStyle = `rgba(255,120,50,${Math.min(0.24, V.light * 0.22)})`; c.fillRect(-20, -20, W + 40, H + 40); }
+    if (V.light > 0.01) { c.fillStyle = `rgba(${btc ? '255,40,80' : '255,120,50'},${Math.min(0.24, V.light * 0.22)})`; c.fillRect(-20, -20, W + 40, H + 40); }
     c.globalCompositeOperation = 'source-over';
     if (G.pw.slow > 0) { c.fillStyle = `rgba(110,120,255,${0.1 * Math.min(1, G.pw.slow)})`; c.fillRect(-20, -20, W + 40, H + 40); }
     c.save(); c.translate(ox, 0);
@@ -697,11 +833,11 @@ const NG = {
       c.fillStyle = `rgb(${150 + 105 * on | 0},40,30)`; c.beginPath(); c.arc(x, P, 4, Math.PI, 0); c.fill();
     }
   },
-  arm(c, sx, sy, ang) {
+  arm(c, sx, sy, ang, sleeve = '#363b4c', hand = '#f1b68c') {
     const L = 27, ex = sx + Math.sin(ang) * L, ey = sy + Math.cos(ang) * L;
-    c.strokeStyle = '#363b4c'; c.lineWidth = 10; c.lineCap = 'round';
+    c.strokeStyle = sleeve; c.lineWidth = 10; c.lineCap = 'round';
     c.beginPath(); c.moveTo(sx, sy); c.lineTo(ex, ey); c.stroke();
-    c.fillStyle = '#f1b68c'; c.beginPath(); c.arc(ex, ey, 5.5, 0, TAU); c.fill();
+    c.fillStyle = hand; c.beginPath(); c.arc(ex, ey, 5.5, 0, TAU); c.fill();
   },
   drawSparky(c, t) {
     const b = G.bomber, P = NGc.PARAPET;
@@ -776,6 +912,8 @@ const NG = {
       c.beginPath(); c.moveTo(-6, 0); c.lineTo(6, 0); c.stroke();
       c.beginPath(); c.moveTo(-7, 0); c.lineTo(-3, -3.5); c.lineTo(-3, 3.5); c.closePath(); c.fill();
       c.beginPath(); c.moveTo(7, 0); c.lineTo(3, -3.5); c.lineTo(3, 3.5); c.closePath(); c.fill();
+    } else if (type === 'slow' && this.skin === 'btc') {
+      c.font = `700 13px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('½', 0, 1);
     } else if (type === 'slow') {
       c.beginPath(); c.moveTo(-4.5, -6); c.lineTo(4.5, -6); c.lineTo(-4.5, 6); c.lineTo(4.5, 6); c.closePath(); c.stroke();
     } else {
@@ -784,7 +922,7 @@ const NG = {
     c.restore();
   },
   drawPower(c, p) {
-    const col = PW[p.type].color;
+    const col = this.P[p.type].color;
     c.save(); c.translate(p.cx, p.y);
     c.fillStyle = 'rgba(240,242,255,.92)'; c.beginPath(); c.arc(0, -28, 18, Math.PI, 0); c.closePath(); c.fill();
     c.fillStyle = col; c.globalAlpha = 0.5; c.beginPath(); c.arc(0, -28, 18, Math.PI * 1.33, Math.PI * 1.66); c.lineTo(0, -28); c.closePath(); c.fill(); c.globalAlpha = 1;
@@ -817,6 +955,193 @@ const NG = {
       c.beginPath(); c.arc(0, y0 + 2, tw * 0.95, Math.PI * 1.08, Math.PI * 1.92); c.stroke(); }
     c.restore();
   },
+  // =================== Bitcoin Edition art ===================
+  drawMoonSky(c, t) {
+    const W = this.W, H = this.H, V = this.V, Gd = NGc.GROUND, p = V.pal;
+    const sg = c.createLinearGradient(0, 0, 0, Gd);
+    sg.addColorStop(0, rgb(p[0])); sg.addColorStop(0.55, rgb(p[1])); sg.addColorStop(1, rgb(p[2]));
+    c.fillStyle = sg; c.fillRect(-20, -20, W + 40, H + 40);
+    const starVis = 0.25 + G.group * 0.09;
+    c.fillStyle = '#fff';
+    for (const st of this.stars) { c.globalAlpha = starVis * (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * st.sp + st.ph))); c.fillRect(st.x, st.y - 60, st.r, st.r); }
+    c.globalAlpha = 1;
+    // the moon gets bigger every block: we're going to the moon
+    const [mx, my] = this.moonPos(), mr = 22 + G.group * 4.5;
+    const mg = c.createRadialGradient(mx, my, mr * 0.6, mx, my, mr * 3.2);
+    mg.addColorStop(0, 'rgba(255,240,215,.38)'); mg.addColorStop(1, 'rgba(255,240,215,0)');
+    c.fillStyle = mg; c.fillRect(mx - mr * 3.2, my - mr * 3.2, mr * 6.4, mr * 6.4);
+    const mf = c.createRadialGradient(mx - mr * 0.35, my - mr * 0.35, mr * 0.1, mx, my, mr);
+    mf.addColorStop(0, '#fffaf0'); mf.addColorStop(1, '#e6dcc6');
+    c.fillStyle = mf; c.beginPath(); c.arc(mx, my, mr, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(160,150,140,.32)';
+    for (const [dx, dy, r] of [[-0.32, -0.2, 0.2], [0.28, 0.3, 0.15], [0.15, -0.42, 0.1], [-0.1, 0.42, 0.09]]) { c.beginPath(); c.arc(mx + mr * dx, my + mr * dy, mr * r, 0, TAU); c.fill(); }
+    this.drawChart(c);
+    const par = S.u - 0.5;
+    c.drawImage(this.layers.far, -30 - par * 10, 0, W + 60, H);
+    c.drawImage(this.layers.near, -30 - par * 24, 0, W + 60, H);
+    const hz = c.createLinearGradient(0, Gd - 120, 0, Gd);
+    hz.addColorStop(0, rgb(p[2], 0)); hz.addColorStop(1, rgb(p[2], 0.22));
+    c.fillStyle = hz; c.fillRect(-20, Gd - 120, W + 40, 120);
+  },
+  moonPos() { return [this.W - 78, 168]; },
+  drawChart(c) {
+    const ch = this.V.chart, step = 10, n = Math.min(ch.candles.length, Math.ceil(this.W / step));
+    const all = ch.candles.slice(-n).concat([ch.cur]);
+    let lo = Infinity, hi = -Infinity;
+    for (const k of all) { if (k.l < lo) lo = k.l; if (k.h > hi) hi = k.h; }
+    const top = 190, bot = 400, span = Math.max(0.12, hi - lo), y = v => bot - (v - lo) / span * (bot - top);
+    const x0 = this.W - 16 - (all.length - 1) * step;
+    c.save();
+    c.strokeStyle = 'rgba(255,255,255,.07)'; c.lineWidth = 1;
+    for (let gy = top; gy <= bot; gy += 52.5) { c.beginPath(); c.moveTo(-20, gy); c.lineTo(this.W + 20, gy); c.stroke(); }
+    c.globalAlpha = 0.4;
+    for (let i = 0; i < all.length; i++) {
+      const k = all[i], x = x0 + i * step, up = k.c >= k.o;
+      c.fillStyle = up ? '#2ee88a' : '#ff4d6a';
+      c.fillRect(x - 0.6, y(k.h), 1.2, Math.max(1, y(k.l) - y(k.h)));
+      const a = y(Math.max(k.o, k.c)), b = y(Math.min(k.o, k.c));
+      c.fillRect(x - 3, a, 6, Math.max(1.5, b - a));
+    }
+    c.restore();
+  },
+  drawRig(c, t) {
+    const W = this.W, P = NGc.PARAPET;
+    const g = c.createLinearGradient(0, P, 0, P + 30);
+    g.addColorStop(0, '#4f566a'); g.addColorStop(0.18, '#2c313e'); g.addColorStop(1, '#171a22');
+    c.fillStyle = g; c.fillRect(-20, P, W + 40, 30);
+    c.fillStyle = '#7a8399'; c.fillRect(-20, P, W + 40, 2);
+    c.fillStyle = ORANGE; c.fillRect(-20, P + 26, W + 40, 2.5);
+    // a row of mining rigs: two spinning fans and status lights each
+    const u = 56, off = ((this.ox % u) + u) % u - u;
+    for (let x = off; x < W + u; x += u) {
+      c.fillStyle = 'rgba(0,0,0,.5)'; c.fillRect(x, P + 3, 1.5, 23);
+      for (const fx of [x + 15, x + 41]) {
+        const fy = P + 14;
+        c.fillStyle = '#0c0e13'; c.beginPath(); c.arc(fx, fy, 9, 0, TAU); c.fill();
+        c.strokeStyle = '#444c5d'; c.lineWidth = 1.2; c.stroke();
+        c.strokeStyle = 'rgba(160,170,190,.5)'; c.lineWidth = 2.4; c.lineCap = 'round';
+        const a0 = t * 11 + fx * 0.1;
+        c.beginPath();
+        for (let k = 0; k < 3; k++) { const a = a0 + k * TAU / 3; c.moveTo(fx, fy); c.lineTo(fx + Math.cos(a) * 7, fy + Math.sin(a) * 7); }
+        c.stroke();
+        c.fillStyle = '#5b6375'; c.beginPath(); c.arc(fx, fy, 2, 0, TAU); c.fill();
+      }
+      const on = Math.sin(t * 9 + x * 0.37) > -0.2;
+      c.fillStyle = on ? '#3dff8c' : '#1d5a36'; c.fillRect(x + 26.5, P + 6, 3, 2.5);
+      c.fillStyle = Math.sin(t * 6.3 + x) > 0.4 ? '#ffb347' : '#5a3a12'; c.fillRect(x + 26.5, P + 18, 3, 2.5);
+    }
+    c.fillStyle = 'rgba(0,0,0,.3)'; c.fillRect(-20, P + 30, W + 40, 3);
+  },
+  // Satoshi: an anonymous hooded figure. There is deliberately no face, just shadow under the hood.
+  drawSatoshi(c, t) {
+    const b = G.bomber, P = NGc.PARAPET;
+    const laugh = G.state === 'boom' || G.state === 'over';
+    const vx = running() ? b.vx : 0, moving = Math.abs(vx) > 3;
+    const bob = moving ? -Math.abs(Math.sin(t * 13)) * 3 : Math.sin(t * 2) * 1;
+    const lean = clamp(vx * 0.0011, -0.16, 0.16) + (laugh ? Math.sin(t * 26) * 0.05 : 0);
+    c.save(); c.translate(b.x, P + 4 + bob); c.rotate(lean); c.scale(0.86, 0.86);
+    const k = b.throwT / 0.22, swing = Math.sin(k * Math.PI);
+    let angR = 0.35 + (b.hand > 0 ? swing * 1.7 : 0), angL = -0.35 - (b.hand < 0 ? swing * 1.7 : 0);
+    if (laugh) { angR = 2.5 + Math.sin(t * 20) * 0.25; angL = -2.5 - Math.sin(t * 20 + 1) * 0.25; }
+    const SLEEVE = '#333846', GLOVE = '#15181f';
+    this.arm(c, -19, -50, angL, SLEEVE, GLOVE);
+    const hg = c.createLinearGradient(0, -60, 0, 2);
+    hg.addColorStop(0, '#4a5060'); hg.addColorStop(1, '#23272f');
+    c.fillStyle = hg; rr(c, -24, -60, 48, 62, 13); c.fill();
+    c.fillStyle = 'rgba(0,0,0,.28)'; rr(c, -14, -21, 28, 13, 5); c.fill();
+    c.fillStyle = ORANGE; c.beginPath(); c.arc(0, -38, 9, 0, TAU); c.fill();
+    btcGlyph(c, 0, -38, 12, '#fff');
+    c.strokeStyle = '#c9ccd4'; c.lineWidth = 1.4; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(-5, -57); c.lineTo(-6, -49); c.moveTo(5, -57); c.lineTo(6, -49); c.stroke();
+    this.arm(c, 19, -50, angR, SLEEVE, GLOVE);
+    const hd = c.createLinearGradient(0, -100, 0, -56);
+    hd.addColorStop(0, '#565d6f'); hd.addColorStop(1, '#2c303a');
+    c.fillStyle = hd;
+    c.beginPath(); c.moveTo(-21, -57); c.quadraticCurveTo(-25, -92, -3, -99); c.quadraticCurveTo(1, -100, 5, -98);
+    c.quadraticCurveTo(25, -92, 21, -57); c.closePath(); c.fill();
+    const fg = c.createRadialGradient(0, -69, 2, 0, -72, 15);
+    fg.addColorStop(0, '#000'); fg.addColorStop(1, '#10131a');
+    c.fillStyle = fg; c.beginPath(); c.ellipse(0, -71, 11.5, 14, 0, 0, TAU); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,.12)'; c.lineWidth = 1.5; c.beginPath(); c.ellipse(0, -71.5, 12.5, 15, 0, Math.PI * 1.1, Math.PI * 1.9); c.stroke();
+    if (laugh) { // laser eyes
+      c.globalCompositeOperation = 'lighter';
+      for (const ex of [-4.5, 4.5]) {
+        const gl = c.createRadialGradient(ex, -73, 0, ex, -73, 9);
+        gl.addColorStop(0, 'rgba(255,90,40,.95)'); gl.addColorStop(1, 'rgba(255,60,20,0)');
+        c.fillStyle = gl; c.fillRect(ex - 9, -82, 18, 18);
+        c.fillStyle = 'rgba(255,170,120,.7)'; c.fillRect(ex - 7, -73.6, 14, 1.2);
+      }
+      c.globalCompositeOperation = 'source-over';
+      c.fillStyle = '#ffe2cc'; for (const ex of [-4.5, 4.5]) { c.beginPath(); c.arc(ex, -73, 1.6, 0, TAU); c.fill(); }
+    }
+    c.restore();
+  },
+  drawCoin(c, b, t) {
+    const R = NGc.R + 1, v = this.bombVis(b);
+    const flip = Math.cos(v.rot * 1.6), sx = Math.max(0.14, Math.abs(flip));
+    c.save(); c.translate(b.x, b.y);
+    c.save(); c.scale(sx, 1);
+    c.fillStyle = b.gold ? '#1f5f9c' : '#8c4a00'; c.beginPath(); c.arc(0, 0, R, 0, TAU); c.fill();
+    const g = c.createRadialGradient(-4, -5, 1.5, 0, 0, R);
+    if (b.gold) { g.addColorStop(0, '#ffffff'); g.addColorStop(0.45, '#bdeeff'); g.addColorStop(1, '#3a9be8'); }
+    else { g.addColorStop(0, '#ffe7a3'); g.addColorStop(0.45, '#f9a531'); g.addColorStop(1, '#c86a00'); }
+    c.fillStyle = g; c.beginPath(); c.arc(0, 0, R - 1.6, 0, TAU); c.fill();
+    c.strokeStyle = b.gold ? 'rgba(255,255,255,.75)' : 'rgba(255,236,180,.8)'; c.lineWidth = 1.2;
+    c.beginPath(); c.arc(0, 0, R - 4, 0, TAU); c.stroke();
+    if (sx > 0.32) {
+      if (b.gold) bolt(c, 0, 0, 0.95, '#0f4f8a');
+      else btcGlyph(c, 0, 0, 15, '#fff6e2', 'rgba(120,60,0,.55)');
+    }
+    c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.6;
+    c.beginPath(); c.arc(0, 0, R - 2.5, Math.PI * 1.1, Math.PI * 1.45); c.stroke();
+    c.restore();
+    c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 1.4;
+    c.beginPath(); c.ellipse(0, 0, R * sx + 0.4, R + 0.4, 0, 0, TAU); c.stroke();
+    c.restore();
+    v.tipX = b.x; v.tipY = b.y;
+  },
+  // Cold wallets: steel vaults with an orange stripe, a little screen and a pile of coins inside.
+  drawWallet(c, x, top, half, tilt, slosh, glow, isTop) {
+    const h = NGc.BH, tw = half, bw = half * 0.86, y0 = -h / 2, y1 = h / 2;
+    c.save(); c.translate(x, top + h / 2); c.rotate(tilt);
+    if (glow) { c.shadowColor = 'rgba(90,214,255,.95)'; c.shadowBlur = 14 * this.scale; }
+    const g = c.createLinearGradient(-tw, 0, tw, 0);
+    g.addColorStop(0, '#2b303b'); g.addColorStop(0.3, '#75809a'); g.addColorStop(0.58, '#424a5a'); g.addColorStop(1, '#1c2029');
+    c.fillStyle = g;
+    c.beginPath(); c.moveTo(-tw, y0); c.lineTo(tw, y0); c.lineTo(bw, y1); c.quadraticCurveTo(0, y1 + 2, -bw, y1); c.closePath(); c.fill();
+    c.shadowBlur = 0;
+    c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 1.5; c.stroke();
+    const wAt = yy => tw + (bw - tw) * ((yy - y0) / h);
+    const sy = y0 + 7;
+    c.fillStyle = ORANGE; c.beginPath(); c.moveTo(-wAt(sy), sy); c.lineTo(wAt(sy), sy); c.lineTo(wAt(sy + 3), sy + 3); c.lineTo(-wAt(sy + 3), sy + 3); c.closePath(); c.fill();
+    c.fillStyle = '#07140d'; rr(c, -10, y0 + 13, 20, 9, 2); c.fill();
+    c.strokeStyle = 'rgba(61,255,140,.35)'; c.lineWidth = 1; rr(c, -10, y0 + 13, 20, 9, 2); c.stroke();
+    btcGlyph(c, 0, y0 + 17.5, 7, '#3dff8c');
+    c.fillStyle = '#a9b1c2'; c.beginPath(); c.ellipse(0, y0, tw, 4.6, 0, 0, TAU); c.fill();
+    c.save(); c.beginPath(); c.ellipse(0, y0 + 0.5, tw - 2.5, 3.3, 0, 0, TAU); c.clip();
+    c.fillStyle = '#1d1407'; c.fillRect(-tw, y0 - 5, tw * 2, 10);
+    c.fillStyle = '#d97f0e'; c.beginPath(); c.ellipse(slosh * 0.5, y0 + 1.6, tw - 4, 2.4, 0, 0, TAU); c.fill();
+    c.fillStyle = '#ffd27a';
+    for (let i = -2; i <= 2; i++) { c.beginPath(); c.ellipse(slosh * 0.5 + i * tw * 0.3, y0 + 1 + (i & 1) * 0.8, 3.4, 1.3, 0, 0, TAU); c.fill(); }
+    c.restore();
+    if (isTop) { c.fillStyle = Math.sin(S.time * 4) > 0 ? '#3dff8c' : '#1d5a36'; c.fillRect(tw * 0.62, y0 + 15, 2.5, 2.5); }
+    c.restore();
+  },
+  // After each mined block, a tiny rocket heads for the moon.
+  rocketPos(r, k) {
+    const [mx, my] = this.moonPos(), x1 = mx - this.ox - 10, y1 = my + 10, x0 = r.x0, y0 = NGc.GROUND - 10;
+    return [x0 + (x1 - x0) * k, y0 + (y1 - y0) * k - Math.sin(Math.PI * k) * 70];
+  },
+  drawRocket(c, r) {
+    const k = Math.min(1, r.t), [x, y] = this.rocketPos(r, k), [x2, y2] = this.rocketPos(r, Math.min(1, k + 0.01));
+    c.save(); c.translate(x, y); c.rotate(Math.atan2(y2 - y, x2 - x) + Math.PI / 2);
+    c.globalAlpha = Math.min(1, (1 - k) * 6);
+    c.fillStyle = '#ffb347'; c.beginPath(); c.moveTo(-3, 6); c.lineTo(0, 13 + Math.random() * 4); c.lineTo(3, 6); c.closePath(); c.fill();
+    c.fillStyle = '#f2f4fa'; c.beginPath(); c.moveTo(0, -9); c.quadraticCurveTo(5, -3, 4, 7); c.lineTo(-4, 7); c.quadraticCurveTo(-5, -3, 0, -9); c.fill();
+    c.fillStyle = ORANGE; c.beginPath(); c.arc(0, -1, 1.8, 0, TAU); c.fill();
+    c.fillStyle = '#c84a2a'; c.fillRect(-6, 4, 3, 4); c.fillRect(3, 4, 3, 4);
+    c.restore();
+  },
   drawHUD(c, t) {
     const W = this.W, H = this.H, V = this.V;
     const hg = c.createLinearGradient(0, 0, 0, 56);
@@ -825,14 +1150,16 @@ const NG = {
     c.textBaseline = 'alphabetic';
     try { c.letterSpacing = '2px'; } catch (e) {}
     c.textAlign = 'left'; c.font = `600 11px ${FONT}`; c.fillStyle = 'rgba(225,230,250,.62)';
-    c.fillText(run && run.ranked ? 'SCORE · RANKED' : 'SCORE', 16, 19);
+    const btc = this.skin === 'btc';
+    c.fillText((btc ? 'SATS' : 'SCORE') + (run && run.ranked ? ' · RANKED' : ''), 16, 19);
     try { c.letterSpacing = '0px'; } catch (e) {}
     c.font = `700 28px ${FONT}`; c.fillStyle = '#fff';
     c.fillText(fmt(Math.round(V.disp)), 16, 46);
     for (let i = 0; i < 3; i++) {
       const x = W - 24 - (2 - i) * 24, y = 14, on = i < G.buckets;
       c.beginPath(); c.moveTo(x - 9, y); c.lineTo(x + 9, y); c.lineTo(x + 7, y + 14); c.lineTo(x - 7, y + 14); c.closePath();
-      if (on) { c.fillStyle = '#dfe5ef'; c.fill(); c.fillStyle = '#4fb8f0'; c.fillRect(x - 8, y, 16, 3); }
+      if (on && btc) { c.fillStyle = '#5d6577'; c.fill(); c.fillStyle = ORANGE; c.fillRect(x - 8, y + 4, 16, 3); c.fillStyle = '#ffd27a'; c.fillRect(x - 8, y, 16, 2); }
+      else if (on) { c.fillStyle = '#dfe5ef'; c.fill(); c.fillStyle = '#4fb8f0'; c.fillRect(x - 8, y, 16, 3); }
       else { c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1.5; c.stroke(); }
     }
     if (G.mult > 1) {
@@ -847,7 +1174,7 @@ const NG = {
     c.textAlign = 'left'; c.textBaseline = 'middle';
     try { c.letterSpacing = '2px'; } catch (e) {}
     c.font = `700 12px ${FONT}`; c.fillStyle = 'rgba(240,243,255,.9)';
-    c.fillText('GROUP ' + (G.group + 1), 16, sy);
+    c.fillText((btc ? 'BLOCK ' : 'GROUP ') + (G.group + 1), 16, sy);
     try { c.letterSpacing = '0px'; } catch (e) {}
     const bx = 100, bw = Math.min(170, W * 0.34);
     const prog = G.state === 'play' || G.state === 'boom' ? G.waveCaught / g.n : G.state === 'clear' ? 1 : 0;
@@ -856,12 +1183,12 @@ const NG = {
       c.fillStyle = pg; rr(c, bx, sy - 3, Math.max(6, bw * prog), 6, 3); c.fill(); }
     let px = W - 26;
     const chips = [];
-    if (G.pw.wide > 0) chips.push(['wide', G.pw.wide / PW.wide.time]);
-    if (G.pw.slow > 0) chips.push(['slow', G.pw.slow / PW.slow.time]);
+    if (G.pw.wide > 0) chips.push(['wide', G.pw.wide / this.P.wide.time]);
+    if (G.pw.slow > 0) chips.push(['slow', G.pw.slow / this.P.slow.time]);
     if (G.pw.shield) chips.push(['shield', 1]);
     for (const [type, frac] of chips) {
       c.fillStyle = 'rgba(10,12,22,.75)'; c.beginPath(); c.arc(px, sy, 12, 0, TAU); c.fill();
-      c.strokeStyle = PW[type].color; c.lineWidth = 2.5; c.beginPath(); c.arc(px, sy, 11, -Math.PI / 2, -Math.PI / 2 + TAU * frac); c.stroke();
+      c.strokeStyle = this.P[type].color; c.lineWidth = 2.5; c.beginPath(); c.arc(px, sy, 11, -Math.PI / 2, -Math.PI / 2 + TAU * frac); c.stroke();
       this.pwIcon(c, type, px, sy, 0.8);
       px -= 30;
     }
@@ -893,7 +1220,7 @@ function padButton(i, wheel) {
   if (!wheel && i > 3 && !(i >= 12 && i <= 15)) return;
   if (S.paused) return;
   if (!wheel && i >= 12) return; // d-pad steers, doesn't start
-  if (!G) startGame(S.menuSel ? 'nextgen' : 'classic');
+  if (!G) startGame(MODES[S.menuSel]);
   else if (G.state === 'over') { if (S.time - S.overAt > 0.9) startGame(S.mode); }
   else action();
 }
@@ -916,7 +1243,7 @@ function pollPads() {
       wheelAxis = a0; wheelSeen = true;
       if (moved) setInput('wheel');
       const f = wheelFrac(a0);
-      if (!G && inputMode === 'wheel') { const sel = f < -0.1 ? 0 : f > 0.1 ? 1 : S.menuSel; if (sel !== S.menuSel) { S.menuSel = sel; updateMenuSel(); } }
+      if (!G && inputMode === 'wheel') { const sel = f < -0.45 ? 0 : f > 0.45 ? 2 : Math.abs(f) < 0.2 ? 1 : S.menuSel; if (sel !== S.menuSel) { S.menuSel = sel; updateMenuSel(); } }
       if (inputMode === 'wheel' && !S.paused) S.u = 0.5 + f / 2;
     } else {
       let sx = Math.abs(a0) > 0.18 ? a0 : 0;
@@ -924,7 +1251,7 @@ function pollPads() {
       if (sx) setInput('gamepad');
       if (!G) {
         const dir = sx < -0.5 ? -1 : sx > 0.5 ? 1 : 0;
-        if (dir && dir !== stickLatch) { S.menuSel = dir > 0 ? 1 : 0; updateMenuSel(); }
+        if (dir && dir !== stickLatch) { S.menuSel = clamp(S.menuSel + dir, 0, MODES.length - 1); updateMenuSel(); }
         stickLatch = dir;
       } else stickX = sx;
     }
@@ -970,13 +1297,13 @@ addEventListener('keydown', e => {
   if (!$('settings').hidden) { if (e.key === 'Escape') closeSettings(); return; }
   const k = e.key;
   const isL = k === 'ArrowLeft' || k === 'a' || k === 'A', isR = k === 'ArrowRight' || k === 'd' || k === 'D';
-  if (!G && (isL || isR)) { S.menuSel = isR ? 1 : 0; updateMenuSel(); setInput('keyboard'); e.preventDefault(); return; }
+  if (!G && (isL || isR)) { S.menuSel = clamp(S.menuSel + (isR ? 1 : -1), 0, MODES.length - 1); updateMenuSel(); setInput('keyboard'); e.preventDefault(); return; }
   if (isL) { K.left = true; setInput('keyboard'); e.preventDefault(); }
   else if (isR) { K.right = true; setInput('keyboard'); e.preventDefault(); }
   else if (k === ' ' || k === 'Enter') {
     if (e.target.closest && e.target.closest('button, input')) return;
     e.preventDefault(); ensureAudio(); setInput('keyboard');
-    if (!G) startGame(S.menuSel ? 'nextgen' : 'classic'); else action();
+    if (!G) startGame(MODES[S.menuSel]); else action();
   } else if (k === 'p' || k === 'P' || k === 'Escape') pause(!S.paused);
 });
 addEventListener('keyup', e => {
@@ -988,10 +1315,10 @@ addEventListener('blur', () => { K.left = K.right = false; if (G && G.state === 
 document.addEventListener('visibilitychange', () => { if (document.hidden && G && G.state === 'play') pause(true); });
 
 // ---------- buttons ----------
-$('btnClassic').addEventListener('click', () => startGame('classic'));
-$('btnNextGen').addEventListener('click', () => startGame('nextgen'));
-$('btnClassic').addEventListener('mouseenter', () => { S.menuSel = 0; updateMenuSel(); });
-$('btnNextGen').addEventListener('mouseenter', () => { S.menuSel = 1; updateMenuSel(); });
+MENU_BTNS.forEach((id, i) => {
+  $(id).addEventListener('click', () => startGame(MODES[i]));
+  $(id).addEventListener('mouseenter', () => { S.menuSel = i; updateMenuSel(); });
+});
 $('btnResume').addEventListener('click', () => pause(false));
 $('btnQuit').addEventListener('click', toMenu);
 $('btnAgain').addEventListener('click', () => startGame(S.mode));
@@ -1047,7 +1374,7 @@ function updateSettingsLive() {
 // Nostr (arcade kit)
 // =====================================================================
 arcade.bindAccountButton($('btnAcct'), $('acctName'));
-$('btnBoard').addEventListener('click', () => arcade.openSheet('board', S.menuSel ? 'nextgen' : 'classic'));
+$('btnBoard').addEventListener('click', () => arcade.openSheet('board', MODES[S.menuSel]));
 
 // =====================================================================
 // layout + main loop
@@ -1112,13 +1439,15 @@ function frame(t) {
   tickGame(dt);
   if (!S.paused && !modalOpen()) E.update(dt);
   E.render();
-  setFuse(settings.sound && G && G.state === 'play' && !S.paused && !modalOpen() && G.bombs.length > 0);
+  setFuse(settings.sound && G && G.mode !== 'bitcoin' && G.state === 'play' && !S.paused && !modalOpen() && G.bombs.length > 0);
   musicTick();
   updateSettingsLive();
   requestAnimationFrame(frame);
 }
 function boot() {
   E = CL; document.body.dataset.view = 'classic';
+  // bomber/?mode=bitcoin (from the hub's Bitcoin Edition cabinet) preselects that mode
+  try { const m = new URLSearchParams(location.search).get('mode'); if (MODES.includes(m)) S.menuSel = MODES.indexOf(m); } catch (e) {}
   updateHiLabels(); updateMenuSel(); syncSettingsUI(); layout(); show('menu');
   try { document.fonts && document.fonts.load(`700 28px ${FONT}`).catch(() => {}); } catch (e) {}
   requestAnimationFrame(t => { last = t; requestAnimationFrame(frame); });

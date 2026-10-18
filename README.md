@@ -7,6 +7,7 @@ Browser arcade games with one shared Nostr sign-in and a leaderboard where every
 | Game | Boards | Play |
 |---|---|---|
 | **Bomber** — catch Sparky's falling bombs in three water buckets. Atari-style Classic mode and a modern Next Gen remake. | Classic, Next Gen | [/arcade/bomber/](https://unclestev.github.io/arcade/bomber/) |
+| **Bomber: Bitcoin Edition** — Satoshi drops bitcoins off a mining rig; stack them in cold wallets before the price crashes. Next Gen rules with its own look and leaderboard. | Bitcoin | [/arcade/bomber/?mode=bitcoin](https://unclestev.github.io/arcade/bomber/?mode=bitcoin) |
 
 Every game works with touch, keyboard and mouse; Bomber also supports gamepads and the Logitech G29 wheel.
 
@@ -50,7 +51,7 @@ replay <sha256 of the replay>
 
 ```
 index.html, hub/      arcade front page
-games.js              list of games: title, path, cover, boards and the stats each board shows
+games.js              list of games: title, path, cover, boards, the stats each board shows, and extra edition cabinets
 kit/                  shared sign-in, scores and leaderboard UI used by every game (see kit/README.md)
 bomber/               Bomber (its rules in bomber/js/sim.js, referee module in bomber/verify.js)
 referee/              Cloudflare Worker that verifies runs for every game

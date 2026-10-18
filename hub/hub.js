@@ -19,17 +19,22 @@ const hub = createHub();
 hub.bindAccountButton($('btnAcct'), $('acctName'));
 
 const list = $('cabinets');
-for (const [id, g] of Object.entries(GAMES)) {
+function cabinet(id, { title, path, cover, blurb, chips, board, edition }) {
   const screen = h('div', { class: 'screen' });
-  if (g.cover) screen.append(h('img', { src: g.cover, alt: `${g.title} gameplay`, loading: 'lazy' }));
-  list.append(h('article', { class: 'cab' }, screen,
+  if (cover) screen.append(h('img', { src: cover, alt: `${title} gameplay`, loading: 'lazy' }));
+  return h('article', { class: edition ? 'cab edition' : 'cab' }, screen,
     h('div', { class: 'body' },
-      h('h3', { text: g.title.toUpperCase() }),
-      h('p', { text: g.blurb }),
-      h('div', { class: 'chips' }, g.boards.map(b => h('span', { text: b.label }))),
+      h('h3', { text: title.toUpperCase() }),
+      h('p', { text: blurb }),
+      chips.length ? h('div', { class: 'chips' }, chips.map(c => h('span', { text: c }))) : null,
       h('div', { class: 'actions' },
-        h('a', { class: 'btn play', href: g.path, text: 'PLAY' }),
-        h('button', { class: 'btn', onclick: () => hub.openSheet('board', id) }, 'SCORES')))));
+        h('a', { class: 'btn play', href: path, text: 'PLAY' }),
+        h('button', { class: 'btn', onclick: () => hub.openSheet('board', id, board) }, 'SCORES'))));
+}
+for (const [id, g] of Object.entries(GAMES)) {
+  const main = g.boards.filter(b => !(g.editions || []).some(e => e.board === b.id));
+  list.append(cabinet(id, { ...g, chips: main.map(b => b.label), board: main[0].id }));
+  for (const e of g.editions || []) list.append(cabinet(id, { ...e, chips: ['Special edition'], edition: true }));
 }
 list.append(h('article', { class: 'cab soon', 'aria-label': 'Next game in development' },
   h('div', { class: 'screen', text: 'IN THE WORKSHOP' }),

@@ -51,6 +51,8 @@ rocks: {
 },
 ```
 
+A game can also add `editions`: extra cabinets on the hub that open the game with a query string and show one of its boards (see Bomber's Bitcoin Edition). They share the game's sign-in and referee module; give the edition its own board so its scores stay separate.
+
 ### 5. Use the kit in the game
 
 In `rocks/index.html`, copy the Content Security Policy from `bomber/index.html`, and load `../kit/arcade.css` before the game's own CSS. Then:

@@ -59,11 +59,17 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const tri = x => { const f = x - Math.floor(x); return 1 - 4 * Math.abs(f - 0.5); }; // -1..1 triangle wave
 
 // ---------- game ----------
+// Modes: 'classic', 'nextgen', and 'bitcoin' (the Bitcoin Edition: Next Gen rules with a different look).
+export const MODES = ['classic', 'nextgen', 'bitcoin'];
+export const usesNextGenRules = mode => mode === 'nextgen' || mode === 'bitcoin';
+
 export function createGame(mode, seedHex) {
-  const C = mode === 'nextgen' ? NEXTGEN : CLASSIC;
+  if (!MODES.includes(mode)) throw new Error('bad mode');
+  const ng = usesNextGenRules(mode);
+  const C = ng ? NEXTGEN : CLASSIC;
   const cx = C.W / 2;
   return {
-    mode, seed: seedHex, rand: makeRng(seedHex), C,
+    mode, ng, seed: seedHex, rand: makeRng(seedHex), C,
     state: 'ready', tick: 0, score: 0, buckets: 3, group: 0, maxGroup: 0, nextBonus: C.BONUS,
     bombs: [], powers: [], nextId: 1,
     bomber: { x: cx, tx: cx, vx: 0, hand: 1, throwT: 0 },
@@ -80,7 +86,7 @@ export function bucketX(G, u = G.u) {
   return C.LO + (u / INPUT_MAX) * (C.HI - C.LO);
 }
 export function bucketHalf(G) {
-  return G.mode === 'nextgen' ? (G.pw.wide > 0 ? NEXTGEN.HALF_WIDE : NEXTGEN.HALF) : 8;
+  return G.ng ? (G.pw.wide > 0 ? NEXTGEN.HALF_WIDE : NEXTGEN.HALF) : 8;
 }
 
 export function startWave(G) {
@@ -113,7 +119,7 @@ function startBoom(G, first) {
   G.state = 'boom';
   const rest = G.bombs.filter(b => b !== first).sort((a, b) => b.y - a.y || a.id - b.id);
   G.boomQ = [first, ...rest]; G.boomTotal = G.boomQ.length; G.boomDone = 0; G.boomT = 0;
-  G.boomWait = G.mode === 'nextgen' ? 1.0 : 0.8;
+  G.boomWait = G.ng ? 1.0 : 0.8;
   G.streak = 0; G.mult = 1;
   for (const p of G.powers) G.ev.push({ t: 'powerLost', x: p.cx, y: p.y, type: p.type });
   G.powers = [];
@@ -132,7 +138,7 @@ function loseBucket(G) {
 function waveClear(G) {
   const g = GROUPS[G.group];
   G.state = 'clear';
-  if (G.mode === 'nextgen') {
+  if (G.ng) {
     const bonus = g.pts * 20;
     addScore(G, bonus);
     for (const p of G.powers) G.ev.push({ t: 'powerLost', x: p.cx, y: p.y, type: p.type });
@@ -150,7 +156,7 @@ export function step(G, u) {
   if (G.state !== 'play' && G.state !== 'clear' && G.state !== 'boom') return;
   G.u = clamp(u | 0, 0, INPUT_MAX);
   G.tick++;
-  if (G.mode === 'nextgen') stepNextGen(G); else stepClassic(G);
+  if (G.ng) stepNextGen(G); else stepClassic(G);
 }
 
 function stepClassic(G) {
@@ -293,7 +299,7 @@ function stepPowers(G, gdt, bx, half, fall) {
 // replay = { mode, seed, segs: [ticks per wave run...], inputs: Uint16Array of bucket positions }
 export function runReplay(replay, limit = MAX_TICKS) {
   const { mode, seed, segs, inputs } = replay;
-  if (mode !== 'classic' && mode !== 'nextgen') throw new Error('bad mode');
+  if (!MODES.includes(mode)) throw new Error('bad mode');
   if (!/^[0-9a-f]{32}$/.test(seed)) throw new Error('bad seed');
   let total = 0;
   for (const n of segs) { if (!Number.isInteger(n) || n < 1) throw new Error('bad segment'); total += n; }

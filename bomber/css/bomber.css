@@ -167,3 +167,11 @@ body[data-view="nextgen"] .ax-result .ax-btn{font-family:var(--ng);font-weight:7
 body[data-view="nextgen"] .ax-result .ax-status{font-family:var(--ng);font-size:15px}
 .ax-result .ax-status{font-size:calc(var(--u, 2) * 5.6px)}
 body[data-view="nextgen"] .ax-result .ax-status{font-size:15px}
+/* ---------- Bitcoin Edition ---------- */
+.mode.btc{background:#140d03;color:#fff4e3;border-color:#f7931a;box-shadow:0 0 calc(var(--u, 2) * 3px) rgba(247,147,26,.6)}
+.mode.btc small{color:#ffb347}
+body[data-skin="bitcoin"] .brand em{color:#f7931a}
+body[data-skin="bitcoin"] .logo{text-shadow:0 0 26px rgba(247,147,26,.75), 0 2px 0 rgba(0,0,0,.4)}
+body[data-skin="bitcoin"] .msg-title{text-shadow:0 0 20px rgba(247,147,26,.85), 0 2px 0 rgba(0,0,0,.5)}
+body[data-skin="bitcoin"] .tagline b,body[data-skin="bitcoin"] .small b,body[data-skin="bitcoin"] .msg-hint{color:#ffb347}
+body[data-skin="bitcoin"] .mode:not(.ghost){background:#f7931a;border-color:#f7931a;color:#1a0f02;box-shadow:0 8px 24px rgba(247,147,26,.4)}
