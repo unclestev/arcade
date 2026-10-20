@@ -198,6 +198,8 @@ $('btnAgain').addEventListener('click', () => { G.showOver(false); G.go('select'
 $('btnMenu').addEventListener('click', () => { G.showOver(false); G.quitGame(); });
 
 // ---------- screen manager ----------
+// screens Next Gen draws in its own style, over a 3D backdrop
+const NG_MENUS = new Set(['select', 'loading', 'results', 'circuit', 'over', 'options', 'controls', 'wheel']);
 let screen = null;
 G.go = function (name, arg) {
   screenName = name;
@@ -205,7 +207,7 @@ G.go = function (name, arg) {
   G.input.clearPressed();
   if (screen.enter) screen.enter(arg);
   updateTouchUI();
-  if (G.NG) G.NG.show(name === 'race' && !!(G.view && G.view.is3D));
+  if (G.NG) G.NG.show(name === 'race' && G.view && G.view.is3D ? 'race' : G.board === 'nextgen' && NG_MENUS.has(name) ? 'menu' : false);
 };
 G.currentScreen = () => screenName;
 

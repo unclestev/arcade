@@ -4,10 +4,12 @@
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { G } from '../ns.js';
 import { LETTER_WORD } from '../sim.js';
-import { voxGeometry, voxMaterial } from './voxmesh.js';
-import { buildWorld, ROAD_HEIGHT } from './world.js';
+import { makeCrate, crateMaterial, makeLetter, makeBomb, setPropsEnv } from './props3d.js';
+import { buildWorld, envScene, ROAD_HEIGHT } from './world.js';
+import { makeTruck, setTruckEnv, WHEEL_R } from './truck3d.js';
 import { Particles, Skids } from './particles.js';
 import * as HUD from './hud3d.js';
+import * as UI from './menus3d.js';
 
 const U = G.U;
 const RIVAL_NAMES = ['BLAZE', 'RIPTIDE', 'DUSTY', 'BOULDER', 'FROSTY', 'NIGHTOWL', 'TORCH', 'JAMMER'];
@@ -19,7 +21,6 @@ const CAMS = {
   low: { dist: 27, hgt: 11.5, hgtSpeed: 1.5, ahead: 16, aheadSpeed: 0, lookY: 4 },
 };
 export const CAM_NAMES = Object.keys(CAMS);
-const WHEEL_R = 2.15;
 
 let renderer = null, canvas = null, camera = null, stage = null, shown = false;
 let cached = null;           // { index, world } for the current track only
@@ -28,12 +29,23 @@ const flashes = [];
 // Automatic resolution: drop the render scale when frames run slow, raise it again with headroom.
 const perf = { scale: 1, ema: 1 / 60, last: 0, checkT: 0, shadowsOff: false };
 
+// Reflections: a blurred copy of the track's sky (PMREM), used by the truck paint, glass and chrome.
+function makeEnv(scene) {
+  const pm = new THREE.PMREMGenerator(renderer);
+  const rt = pm.fromScene(scene, 0.035);
+  pm.dispose();
+  scene.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+  return rt;
+}
+export const makeEnvMap = (scene) => makeEnv(scene);
+export const getRenderer = () => renderer;
+
 // ---------- setup ----------
 export function init() {
   if (renderer) return;
   const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   G.NG_QUALITY = coarse
-    ? { shadow: 1024, terrain: 90, dpr: 1.25, particles: 900, aa: false, decor: 0.7 }
+    ? { shadow: 1024, terrain: 90, dpr: 1.25, particles: 900, aa: false, decor: 0.7, lite: true }
     : { shadow: 2048, terrain: 140, dpr: 1.75, particles: 1600, aa: true, decor: 1 };
   stage = document.getElementById('game');
   canvas = document.createElement('canvas');
@@ -57,11 +69,12 @@ export function init() {
   skids = new Skids(900);
   flashLight = new THREE.PointLight('#ffb050', 0, 90, 1.6);
   HUD.build(stage);
+  UI.build(stage);
   addEventListener('resize', resize);
   try { new ResizeObserver(resize).observe(stage); } catch (e) { /* ignore */ }
   canvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
   resize();
-  G.NG = { RaceView3D, show, perf, info: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }) };
+  G.NG = { RaceView3D, show, setLook, perf, ui: UI, info: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }) };
 }
 
 function resize() {
@@ -73,17 +86,28 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 
-export function show(on) {
-  shown = !!on;
+// mode: 'race' (3D view + HUD), 'menu' (3D backdrop under a Next Gen menu) or false (Classic screens)
+export function show(mode) {
+  const on = !!mode;
+  shown = on;
+  UI.leave();
   if (!canvas) return;
   canvas.hidden = !on;
-  if (!on) { canvas.classList.remove('paused'); HUD.setPaused(false); }
+  setLook('');
+  if (mode !== 'race') HUD.setPaused(false);
   if (G.view && G.view.is3D) G.view.paused = undefined; // re-apply the pause look on the next frame
-  HUD.show(on);
+  HUD.show(mode === 'race');
   const scr = document.getElementById('screen');
-  if (scr) scr.classList.toggle('ng-overlay', !!on);
+  if (scr) scr.classList.toggle('ng-overlay', on);
+  stage.classList.toggle('ngmode', on);
   perf.last = 0;
   if (on) resize();
+}
+// dim the 3D backdrop under a menu: '' | 'paused' | 'soft'
+export function setLook(look) {
+  if (!canvas) return;
+  canvas.classList.toggle('paused', look === 'paused');
+  canvas.classList.toggle('soft', look === 'soft');
 }
 
 function adapt() {
@@ -108,64 +132,7 @@ function recompile() {
 }
 
 // ---------- models ----------
-const truckGeos = {};
-function truckBody(scheme) {
-  if (truckGeos[scheme]) return truckGeos[scheme];
-  const vox = G.SPR.vox.truck(scheme);
-  const find = (hex) => { const r = U.hex(hex); return vox.pal.findIndex((p) => p && p[0] === r[0] && p[1] === r[1] && p[2] === r[2]); };
-  const TIRE = find('#18181c'), HUB = find('#a8acb4');
-  // the four road wheels become separate meshes so they can roll and steer; the spare (x = 0) stays
-  truckGeos[scheme] = voxGeometry(vox, { keep: (x, y, z, c) => !((c === TIRE || c === HUB) && x >= 1 && (y <= 1 || y >= 8)) });
-  return truckGeos[scheme];
-}
-let wheelGeo = null, wheelMat = null;
-function wheelParts() {
-  if (wheelGeo) return { geo: wheelGeo, mat: wheelMat };
-  const h = 1.05, r = WHEEL_R;
-  const prof = [[0.01, -h], [1.0, -h], [1.25, -h + 0.18], [r - 0.15, -h + 0.05], [r, -h + 0.3], [r, h - 0.3], [r - 0.15, h - 0.05], [1.25, h - 0.18], [1.0, h], [0.01, h]];
-  const g = new THREE.LatheGeometry(prof.map(([x, y]) => new THREE.Vector2(x, y)), 18);
-  const hub = new THREE.Color('#b8bcc4'), tire = new THREE.Color('#1a1a1e'), tread = new THREE.Color('#26262c');
-  const cols = [];
-  const n = g.getAttribute('position').count;
-  for (let i = 0; i < n; i++) {
-    const k = i % prof.length;
-    const c = k <= 1 || k >= 8 ? hub : (k === 4 || k === 5) ? tread : tire;
-    cols.push(c.r, c.g, c.b);
-  }
-  g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
-  g.rotateX(Math.PI / 2); // axle along local Z
-  wheelGeo = g;
-  wheelMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.25 });
-  return { geo: wheelGeo, mat: wheelMat };
-}
-const crateGeos = {};
-const crateGeo = (type) => crateGeos[type] || (crateGeos[type] = voxGeometry(G.SPR.vox.crate(type), { centerZ: true }));
-const letterGeos = {};
-const letterGeo = (ch) => letterGeos[ch] || (letterGeos[ch] = voxGeometry(G.SPR.vox.letter(ch), { centerZ: true, scale: 1.7 }));
-let bombGeo = null, letterMat = null, missileParts = null;
-
-function makeTruck(scheme) {
-  const root = new THREE.Group();
-  const pivot = new THREE.Group();
-  root.add(pivot);
-  const body = new THREE.Mesh(truckBody(scheme), voxMaterial());
-  body.castShadow = true;
-  body.receiveShadow = true;
-  body.position.y = 0.6; // sits on the suspension, wheels below
-  pivot.add(body);
-  const { geo, mat } = wheelParts();
-  const wheels = [];
-  for (const [x, z, front] of [[-4, -4, false], [-4, 4, false], [5, -4, true], [5, 4, true]]) {
-    const steer = new THREE.Group();
-    steer.position.set(x, WHEEL_R, z);
-    const w = new THREE.Mesh(geo, mat);
-    w.castShadow = true;
-    steer.add(w);
-    root.add(steer);
-    wheels.push({ steer, w, front });
-  }
-  return { root, pivot, body, wheels, spin: 0, pitch: 0, roll: 0, acc: 0, bounce: 0, bv: 0, prevVF: 0, prevH: null, prevW: null, wasAir: false };
-}
+let missileParts = null;
 
 function makeMissile() {
   if (!missileParts) {
@@ -188,19 +155,6 @@ function makeMissile() {
   g.add(new THREE.Mesh(P.flame, P.glow));
   return g;
 }
-function makeBomb() {
-  if (!bombGeo) bombGeo = voxGeometry(G.SPR.vox.bomb(), { scale: 0.95 });
-  const g = new THREE.Group();
-  const m = new THREE.Mesh(bombGeo, voxMaterial());
-  m.castShadow = true;
-  g.add(m);
-  const led = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 6), new THREE.MeshBasicMaterial({ color: '#ff2a20' }));
-  led.position.set(0, 7.4, 0);
-  g.add(led);
-  g.userData.led = led;
-  return g;
-}
-
 // ---------- the view ----------
 export class RaceView3D {
   constructor(game, { scheme = 0 } = {}) {
@@ -223,9 +177,12 @@ export class RaceView3D {
 
     // world: rebuilt only when the track changes
     if (!cached || cached.index !== this.track.index) {
-      if (cached) cached.world.dispose();
+      if (cached) { cached.world.dispose(); if (cached.env) cached.env.dispose(); }
       cached = { index: this.track.index, world: buildWorld(this.track) };
+      cached.env = makeEnv(envScene(this.track));
     }
+    setTruckEnv(cached.env.texture);
+    setPropsEnv(cached.env.texture);
     this.world = cached.world;
     this.scene = this.world.scene;
     if (this.scene.userData.dyn) this.scene.remove(this.scene.userData.dyn);
@@ -239,21 +196,17 @@ export class RaceView3D {
 
     this.trucks = this.R.cars.map((c) => {
       const tr = makeTruck(this.scheme(c.slot));
-      this.dyn.add(tr.root);
+      this.dyn.add(tr.root, tr.contact);
       return tr;
     });
     this.pickups = new Map();
     for (const p of this.R.pickups) {
-      const m = new THREE.Mesh(crateGeo(p.type), voxMaterial());
-      m.castShadow = true;
-      m.userData.type = p.type;
+      const m = makeCrate(p.type);
       this.dyn.add(m);
       this.pickups.set(p.id, m);
     }
     if (this.R.letter) {
-      if (!letterMat) letterMat = new THREE.MeshStandardMaterial({ vertexColors: true, emissive: '#ffb020', emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.4 });
-      this.letter = new THREE.Mesh(letterGeo(this.R.letter.ch), letterMat);
-      this.letter.castShadow = true;
+      this.letter = makeLetter(this.R.letter.ch);
       this.dyn.add(this.letter);
     }
     this.bombs = new Map();
@@ -268,18 +221,27 @@ export class RaceView3D {
   }
 
   // Compile every shader now (during the race card) so the first missile or explosion doesn't stutter.
+  // Compile every shader now (during the race card) so the first frames, missile or explosion don't
+  // stutter. Where the browser compiles in parallel, the race card waits for it (this.warming).
   warmUp() {
     if (cached.warm) return;
+    cached.warm = true;
     const tmp = [makeMissile(), makeBomb()];
     this.explosion(0, 0, false);
     for (const o of tmp) { o.position.set(0, -500, 0); this.dyn.add(o); }
-    try { renderer.compile(this.scene, camera); } catch (e) { /* not fatal */ }
-    for (const o of tmp) this.dyn.remove(o);
-    for (const f of flashes) f.mesh.visible = false;
-    flashLight.intensity = 0;
-    glow.clear(); soft.clear();
-    this.shake = 0;
-    cached.warm = true;
+    const done = () => {
+      for (const o of tmp) o.removeFromParent();
+      for (const f of flashes) f.mesh.visible = false;
+      flashLight.intensity = 0;
+      glow.clear(); soft.clear();
+      this.shake = 0;
+      this.warming = false;
+    };
+    this.warming = true;
+    try {
+      if (renderer.compileAsync) renderer.compileAsync(this.scene, camera).then(done, done);
+      else { renderer.compile(this.scene, camera); done(); }
+    } catch (e) { done(); }
   }
 
   scheme(slot) { return this.schemes[slot]; }
@@ -461,7 +423,7 @@ export class RaceView3D {
       if (!m) continue;
       m.visible = p.active;
       if (!p.active) continue;
-      if (m.userData.type !== p.type) { m.geometry = crateGeo(p.type); m.userData.type = p.type; }
+      if (m.userData.type !== p.type) { m.material = crateMaterial(p.type); m.userData.type = p.type; }
       m.position.set(p.x, ry + 6 + Math.sin(t * 3 + p.id) * 1.2, p.y);
       m.rotation.y = t * 1.6 + p.id;
     }
@@ -536,7 +498,18 @@ export class RaceView3D {
     tr.root.position.set(c.x, ry + c.z + (pit ? -2.7 : 0), c.y);
     tr.root.rotation.y = -c.h;
     tr.root.visible = !(c.invulnT > 0 && c.spinT <= 0 && Math.floor(t * 16) % 2 === 0);
+    // contact shadow stays on the road and fades as the truck leaves it
+    const lift = U.clamp(c.z / 22, 0, 1);
+    tr.contact.visible = !pit;
+    tr.contact.position.set(c.x, ry + 0.12, c.y);
+    tr.contact.rotation.y = -c.h;
+    tr.contact.scale.setScalar(1 + lift * 0.5);
+    tr.contact.material.opacity = 0.85 * (1 - lift);
     if (dt <= 0) return;
+    // brake lamps flare when braking or slowing hard
+    const braking = (c.brakeIn > 0.1 && c.vF > 3) || (c.vF - tr.prevVF) / dt < -150 ? 1 : 0;
+    tr.brake += (braking - tr.brake) * Math.min(1, dt * 14);
+    tr.glow.material.opacity = 0.16 + tr.brake * 0.84;
     // suspension: squat/dive with acceleration, lean out of turns, pitch on ramps and in the air
     const acc = (c.vF - tr.prevVF) / dt;
     tr.prevVF = c.vF;
@@ -635,6 +608,37 @@ export class RaceView3D {
     sun.position.copy(this.target).addScaledVector(this.world.sunDir, 300);
     sun.target.position.copy(this.target);
     this.world.sky.position.set(camera.position.x, 0, camera.position.z);
+  }
+
+  // Backdrop for the screens after a race: a slow orbit around the player's truck.
+  orbitFrame(dt) {
+    this.t += dt;
+    this.world.update(this.t);
+    const c = this.R.player, tr = this.trucks[PLAYER];
+    for (const t of this.trucks) t.glow.material.opacity = 0.16;
+    if (this.orbitA === undefined) this.orbitA = c.h + Math.PI * 0.75;
+    this.orbitA += dt * 0.16;
+    const py = tr.root.position.y;
+    const a = this.orbitA;
+    camera.position.set(c.x + Math.cos(a) * 30, py + 11, c.y + Math.sin(a) * 30);
+    camera.lookAt(c.x, py + 3.5, c.y);
+    if (Math.abs(camera.fov - 48) > 0.05) { camera.fov = 48; camera.updateProjectionMatrix(); }
+    this.target.set(c.x, 0, c.y);
+    const sun = this.world.sun;
+    sun.position.copy(this.target).addScaledVector(this.world.sunDir, 300);
+    sun.target.position.copy(this.target);
+    this.world.sky.position.set(camera.position.x, 0, camera.position.z);
+    const h = renderer.domElement.height;
+    const scale = h / (2 * Math.tan((camera.fov * Math.PI) / 360));
+    soft.update(dt, scale);
+    glow.update(dt, scale);
+    setTruckEnv(cached.env.texture);
+    renderer.render(this.scene, camera);
+  }
+  // The race exactly as it was (under the options menu opened from pause).
+  stillFrame() {
+    setTruckEnv(cached.env.texture);
+    renderer.render(this.scene, camera);
   }
 
   render(ctx) {

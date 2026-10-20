@@ -1,6 +1,7 @@
 // Next Gen heads-up display: crisp DOM overlay over the 3D view (nothing here touches the rules).
 import { G } from '../ns.js';
 import { LAPS, LETTER_WORD, TRACKS } from '../sim.js';
+import { iconCanvas } from './props3d.js';
 
 const U = G.U;
 const PLACE_COL = ['#ffd84a', '#e4ecf6', '#f0a66a', '#ff6a5a'];
@@ -25,16 +26,9 @@ function set(key, node, prop, value) {
   else node.style.setProperty(prop, value);
 }
 
-// Crate icon (same pixel art as Classic's HUD), drawn once per item type.
+// Crate badge (same art as the 3D crates).
 function crateIcon(type) {
-  const it = G.SPR.ITEMS[type];
-  const c = U.makeCanvas(9, 9);
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#140e1a'; ctx.fillRect(0, 0, 9, 9);
-  ctx.fillStyle = it.crate; ctx.fillRect(1, 1, 7, 7);
-  ctx.fillStyle = it.icon;
-  const rows = G.SPR.ICONS[type];
-  for (let y = 0; y < 5; y++) for (let x = 0; x < 5; x++) if (rows[y][x] === '#') ctx.fillRect(2 + x, 2 + y, 1, 1);
+  const c = iconCanvas(type, 48);
   c.className = 'ngh-ico';
   return c;
 }

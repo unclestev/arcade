@@ -8,6 +8,18 @@ const T = (ctx, s, x, y, o) => G.font.text(ctx, s, x, y, o);
 const In = () => G.input;
 const DARK = '#140e1a';
 const S = {};
+// Next Gen draws these screens with its own 3D backdrop and modern panels (ng/menus3d.js).
+const NGUI = () => (G.board === 'nextgen' && G.NG && G.NG.ui) || null;
+function frameDt(o) { const d = o._rt === undefined ? 0 : Math.min(0.1, G.time - o._rt); o._rt = G.time; return d; }
+// 3D backdrop behind a Next Gen menu: the race (dimmed) when we came from one, else the showroom
+function ngBackdrop(o, fromRace) {
+  const dt = frameDt(o);
+  if (fromRace && G.view && G.view.is3D) { G.view.stillFrame(); G.NG.setLook('paused'); } else G.NG.ui.showroom(G.settings.lastScheme || 0, dt, false);
+}
+function ngOrbit(o) {
+  const dt = frameDt(o);
+  if (G.view && G.view.is3D) { G.view.orbitFrame(dt); G.NG.setLook('soft'); } else G.NG.ui.showroom(G.settings.lastScheme || 0, dt, false);
+}
 
 // ---------- pointer hit regions ----------
 G.ui = {
@@ -322,6 +334,8 @@ S.select = {
     if (this.t > 20) this.pick();
   },
   render(ctx) {
+    const ng = NGUI();
+    if (ng) { ctx.clearRect(0, 0, VW, VH); ng.select(this, frameDt(this)); return; }
     backdrop(ctx, this.t, { truck: false, still: true });
     G.hud.panel(ctx, 14, 8, VW - 28, VH - 16);
     T(ctx, 'CHOOSE YOUR TRUCK', VW / 2, 14, { color: '#ffe060', scale: 2, align: 'center', outline: DARK });
@@ -356,10 +370,17 @@ S.loading = {
   update(dt) {
     this.t += dt;
     this.frames++;
-    if (this.frames === 3) { G.beginRace(); G.go('race'); }
+    if (this.frames === 3) { G.beginRace(); this.waitT = 0; }
+    // Next Gen: hold the race card while the 3D shaders finish compiling (at most a few seconds)
+    if (this.frames >= 3) {
+      this.waitT += dt;
+      if (!(G.view && G.view.warming) || this.waitT > 6) G.go('race');
+    }
   },
   render(ctx) {
     const g = G.game;
+    const ng = NGUI();
+    if (ng) { ctx.clearRect(0, 0, VW, VH); ng.card(g); return; }
     const def = SIM.TRACKS[g.raceNo % SIM.TRACKS.length];
     ctx.fillStyle = '#140e2e';
     ctx.fillRect(0, 0, VW, VH);
@@ -410,6 +431,8 @@ S.race = {
     const v = G.view;
     v.render(ctx);
     if (!v.is3D) G.hud.draw(ctx, v, G.game);
+    const ng = v.is3D && NGUI();
+    if (ng) { if (this.paused) ng.pause(this.sel(), this.pauseItems()); else ng.leave(); return; }
     if (this.paused) {
       ctx.fillStyle = 'rgba(10,6,18,0.6)';
       ctx.fillRect(0, 0, VW, VH);
@@ -460,6 +483,8 @@ S.results = {
   },
   render(ctx) {
     const g = G.game, r = this.race, v = this.view;
+    const ng = v.is3D && NGUI();
+    if (ng) { ctx.clearRect(0, 0, VW, VH); ngOrbit(this); ng.results(this); return; }
     backdrop(ctx, this.t, { truck: false, still: true });
     G.hud.panel(ctx, 20, 8, VW - 40, VH - 16);
     T(ctx, 'RACE RESULTS', VW / 2, 14, { color: '#ffe060', scale: 2, align: 'center', outline: DARK });
@@ -509,6 +534,8 @@ S.circuit = {
     if ((this.t > 2 && (I.pressed('confirm') || I.pressed('start'))) || this.t > 8) G.go('loading');
   },
   render(ctx) {
+    const ng = NGUI();
+    if (ng) { ctx.clearRect(0, 0, VW, VH); ngOrbit(this); ng.circuit(this); return; }
     backdrop(ctx, this.t, { scheme: G.game.scheme });
     const n = Math.floor((G.game.raceNo - 1) / SIM.TRACKS.length) + 1;
     T(ctx, 'CIRCUIT ' + n, VW / 2, 40, { color: '#ffffff', scale: 3, align: 'center', outline: DARK });
@@ -530,6 +557,8 @@ S.over = {
   },
   update(dt) { this.t += dt; },
   render(ctx) {
+    const ng = NGUI();
+    if (ng) { ctx.clearRect(0, 0, VW, VH); ngOrbit(this); ng.over(); return; }
     ctx.fillStyle = '#0a0612';
     ctx.fillRect(0, 0, VW, VH);
     const a = Math.min(1, this.t * 2);
@@ -566,12 +595,13 @@ S.options = {
     menuInput(this, this.items(), () => this.back());
   },
   render(ctx) {
+    const I = In();
+    const w = I.wheel ? 'WHEEL: ' + (I.wheel.calibrated ? 'SET UP' : 'NOT SET UP') : I.gamepadBlocked ? 'WHEEL/GAMEPAD: BLOCKED IN THIS VIEW' : 'WHEEL: NOT CONNECTED';
+    const ng = NGUI();
+    if (ng) { ctx.clearRect(0, 0, VW, VH); ngBackdrop(this, this.arg.back === 'race'); ng.options(this, this.items(), w); return; }
     backdrop(ctx, this.t, { truck: false, still: true });
     T(ctx, 'OPTIONS', VW / 2, 8, { color: '#ffe060', scale: 2, align: 'center', outline: DARK });
     menuDraw(ctx, this, this.items(), VW / 2, 44, { w: 250, lh: 15 });
-    const I = In();
-    const w = I.wheel ? 'WHEEL: ' + (I.wheel.calibrated ? 'SET UP' : 'NOT SET UP') : I.gamepadBlocked ? 'WHEEL/GAMEPAD: BLOCKED IN THIS VIEW' : 'WHEEL: NOT CONNECTED';
-    T(ctx, w, VW / 2, VH - 12, { color: '#7cf0e0', align: 'center', shadow: DARK });
   },
 };
 
@@ -592,6 +622,14 @@ S.controls = {
     if (I.pressed('back') || I.pressed('confirm')) G.go('options', this.arg.arg);
   },
   render(ctx) {
+    const ng = NGUI();
+    if (ng) {
+      ctx.clearRect(0, 0, VW, VH);
+      ngBackdrop(this, !!(this.arg.arg && this.arg.arg.back === 'race'));
+      const step = (d) => { this.page = (this.page + PAGES.length + d) % PAGES.length; G.audio.sfx('blip'); };
+      ng.controls(this, PAGES, () => step(-1), () => step(1), () => G.go('options', this.arg.arg));
+      return;
+    }
     backdrop(ctx, this.t, { truck: false, still: true });
     G.hud.panel(ctx, 12, 6, VW - 24, VH - 12);
     const [title, rows] = PAGES[this.page];
@@ -724,7 +762,33 @@ S.wheel = {
       }
     }
   },
+  ngInfo() {
+    const I = In();
+    if (I.gamepadBlocked) return { step: 'NOT AVAILABLE HERE', lines: ['THIS VIEW BLOCKS WHEEL ACCESS.', 'OPEN THE GAME FROM ITS OWN PAGE (LOCAL COPY OR GITHUB PAGES).'], warn: true, axes: [], hint: 'PRESS ESC TO GO BACK' };
+    const step = STEPS[this.step];
+    const pads = I.rawPads();
+    const pad = this.pad ? pads.find((p) => p.index === this.pad.index) : this.findPad();
+    const info = { step: 'STEP ' + (this.step + 1) + ' OF ' + STEPS.length, lines: [step.text.join(' ')], axes: [], hl: this.track ? this.track.axis : -1 };
+    if (!pad) { info.pad = 'NO WHEEL FOUND · PLUG IT IN AND PRESS A BUTTON'; info.missing = true; }
+    else {
+      info.pad = pad.id.toUpperCase().replace(/[^A-Z0-9 ().:-]/g, '').slice(0, 56);
+      info.axes = pad.axes.slice(0, 10);
+      if (step.key === 'test') {
+        const p = this.prof;
+        info.test = {
+          steer: p.steerAxis >= 0 ? (pad.axes[p.steerAxis] - p.steerCenter) / ((p.steerMax - p.steerCenter) || 1) : 0,
+          gas: p.gasAxis >= 0 ? U.clamp((pad.axes[p.gasAxis] - p.gasRest) / (p.gasFull - p.gasRest), 0, 1) : 0,
+          brake: p.brakeAxis >= 0 ? U.clamp((pad.axes[p.brakeAxis] - p.brakeRest) / (p.brakeFull - p.brakeRest), 0, 1) : 0,
+        };
+      }
+    }
+    const skippable = step.key !== 'center' && step.key !== 'steer' && step.key !== 'test';
+    info.hint = step.key === 'test' ? 'PRESS ANY WHEEL BUTTON TO SAVE · ESC CANCEL' : 'ESC CANCEL' + (skippable ? ' · ENTER SKIP' : '');
+    return info;
+  },
   render(ctx) {
+    const ng = NGUI();
+    if (ng) { ctx.clearRect(0, 0, VW, VH); ngBackdrop(this, false); ng.wheel(this.ngInfo()); return; }
     backdrop(ctx, this.t, { truck: false, still: true });
     G.hud.panel(ctx, 16, 6, VW - 32, VH - 12);
     T(ctx, 'WHEEL SETUP', VW / 2, 12, { color: '#ffe060', scale: 2, align: 'center', outline: DARK });

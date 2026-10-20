@@ -282,6 +282,35 @@ function distField(track) {
 }
 
 // ---------- the world ----------
+// A small stand-in for the track's surroundings (sky gradient, sun, ground) that the 3D view blurs
+// into a reflection map for the trucks' paint, glass and chrome.
+export function envScene(track) {
+  const theme = G.THEMES[track.def.theme];
+  const look = LOOK[track.def.theme] || LOOK.farm;
+  const sky = theme.sky.map(hexLinear);
+  const ground = new THREE.Color(theme.colors.GROUND[0]).multiplyScalar(0.55);
+  const scene = new THREE.Scene();
+  const g = new THREE.SphereGeometry(50, 48, 24);
+  const p = g.getAttribute('position');
+  const cols = [];
+  for (let i = 0; i < p.count; i++) {
+    const t = p.getY(i) / 50;
+    let c;
+    if (t >= 0) {
+      const f = U.clamp(1 - Math.pow(t, 0.55), 0, 1) * (sky.length - 1);
+      const a = Math.floor(f), b = Math.min(sky.length - 1, a + 1);
+      c = sky[a].clone().lerp(sky[b], f - a).multiplyScalar(1.15);
+    } else c = sky[sky.length - 1].clone().lerp(ground, smooth(0, 0.18, -t));
+    cols.push(c.r, c.g, c.b);
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const sun = new THREE.Mesh(new THREE.SphereGeometry(3.2, 16, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(look.sun).multiplyScalar(30) }));
+  sun.position.copy(new THREE.Vector3(...look.sunDir).normalize().multiplyScalar(40));
+  scene.add(sun);
+  return scene;
+}
+
 export function buildWorld(track) {
   const theme = G.THEMES[track.def.theme];
   const look = LOOK[track.def.theme] || LOOK.farm;
