@@ -99,11 +99,13 @@ function chevronTexture() {
   return canvasTexture(64, 128, (ctx, w, h) => {
     ctx.fillStyle = '#f0c830'; ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = '#e0501c';
+    // Tip toward the top of the canvas: the texture is flipped on upload, so the top lands at
+    // higher v, which is further along the track (the way the trucks drive).
     for (let k = 0; k < 2; k++) {
       const y = k * 64;
       ctx.beginPath();
-      ctx.moveTo(4, y + 10); ctx.lineTo(w / 2, y + 40); ctx.lineTo(w - 4, y + 10);
-      ctx.lineTo(w - 4, y + 26); ctx.lineTo(w / 2, y + 56); ctx.lineTo(4, y + 26); ctx.closePath(); ctx.fill();
+      ctx.moveTo(4, y + 54); ctx.lineTo(w / 2, y + 24); ctx.lineTo(w - 4, y + 54);
+      ctx.lineTo(w - 4, y + 38); ctx.lineTo(w / 2, y + 8); ctx.lineTo(4, y + 38); ctx.closePath(); ctx.fill();
     }
   });
 }

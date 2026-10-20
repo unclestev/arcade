@@ -10,7 +10,7 @@
 // from game.ev; the simulation never reads anything back from them.
 
 // Bump RULES whenever a change would alter how any run plays out.
-export const RULES = '1';
+export const RULES = '2';  // 2: hit spins end facing down the track
 
 export const TICK = 1 / 60;
 const SUB = 2;
@@ -435,7 +435,13 @@ class Car {
     let turn = st.turn * this.steer * Math.min(1, sp / 32) * (1 - 0.28 * Math.min(1, sp / st.vmax));
     if (fwd0 < -2) turn = -turn;
     if (air) turn *= 0.3;
-    this.h = wrapAngle(this.h + (stunned ? this.spinDir * 13 : turn) * h);
+    if (stunned) {
+      // Spin about 13 rad/s, but pace it so the spin ends facing down the track (like R.C. Pro-Am's
+      // crash reset) instead of wherever the fixed rate happened to stop (that was ~136° off).
+      const nom = this.spinDir * 13 * this.spinT;
+      const left = nom + wrapAngle(T.ang[this.idx] - (this.h + nom));
+      this.h = wrapAngle(this.h + left * Math.min(1, h / this.spinT));
+    } else this.h = wrapAngle(this.h + turn * h);
 
     const fx = dcos(this.h), fy = dsin(this.h);
     let vF = this.vx * fx + this.vy * fy;
