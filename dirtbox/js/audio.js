@@ -38,10 +38,31 @@ function makePulse(duty) {
   return A.ctx.createPeriodicWave(re, im);
 }
 
+// iPhone: play like a game, not "ambient" sound, so the ring/silent switch doesn't mute it
+// (Safari 16.4+; ignored elsewhere).
+try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* ignore */ }
+
+let primed = false;
+// Must run inside a user gesture that WebKit accepts (touchend / pointerup from a finger,
+// click, keydown); a finger's pointerdown or touchstart does not unlock audio on iOS.
+// Resumes from 'suspended' and from iOS's 'interrupted' (after switching away from a
+// home-screen app or a phone call).
 A.unlock = function () {
   if (!A.init()) return;
-  if (A.ctx.state === 'suspended') A.ctx.resume().catch(() => {});
+  const ctx = A.ctx;
+  if (ctx.state !== 'running' && ctx.state !== 'closed') ctx.resume().catch(() => {});
+  if (!primed) {
+    // a silent one-sample buffer started in the gesture finishes unlocking older iOS
+    primed = true;
+    try {
+      const s = ctx.createBufferSource();
+      s.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+      s.connect(ctx.destination);
+      s.start(0);
+    } catch (e) { primed = false; }
+  }
 };
+A.running = () => !!(A.ctx && A.ctx.state === 'running');
 
 A.setMusic = function (on) {
   A.musicOn = on;

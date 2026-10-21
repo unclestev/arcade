@@ -282,7 +282,19 @@ G.input.onKeyDown = (e) => {
     G.toast(G.settings.music ? 'MUSIC ON' : 'MUSIC OFF');
   }
 };
-addEventListener('pointerdown', () => { G.audio.unlock(); G.audio.resumePending(); }, { passive: true });
+// Audio unlock. iOS only lets sound start in touchend / pointerup / click / keydown, never in a
+// finger's pointerdown or touchstart, so listen on the release too. Capture phase, so it runs even
+// if a control stops the event.
+const audioGesture = () => { G.audio.unlock(); G.audio.resumePending(); };
+for (const type of ['pointerdown', 'pointerup', 'touchend', 'click']) {
+  addEventListener(type, audioGesture, { passive: true, capture: true });
+}
+// Back from another app (home-screen app, call, lock screen): try to resume right away; if iOS
+// refuses without a tap, the next tap does it.
+const audioBack = () => { if (!document.hidden && G.audio.ctx && !G.audio.running()) G.audio.unlock(); };
+document.addEventListener('visibilitychange', audioBack);
+addEventListener('pageshow', audioBack);
+addEventListener('focus', audioBack);
 
 // Phones: no text selection, Look Up / Touch to Search, long-press menus or double-tap zoom on the
 // game. The kit's sign-in and leaderboard sheets (.ax-modal) keep normal behaviour so keys can be copied.
