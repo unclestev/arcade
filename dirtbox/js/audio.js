@@ -38,9 +38,9 @@ function makePulse(duty) {
   return A.ctx.createPeriodicWave(re, im);
 }
 
-// iPhone: play like a game, not "ambient" sound, so the ring/silent switch doesn't mute it
-// (Safari 16.4+; ignored elsewhere).
-try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* ignore */ }
+// iPhone: "ambient" sound, so the ring/silent switch mutes the game and it mixes with other
+// audio (Safari 16.4+; ignored elsewhere).
+try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch (e) { /* ignore */ }
 
 let primed = false;
 // Must run inside a user gesture that WebKit accepts (touchend / pointerup from a finger,
