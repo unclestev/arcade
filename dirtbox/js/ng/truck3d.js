@@ -237,34 +237,98 @@ function sharedParts() {
     wheel: [wheelGeometry(-1), wheelGeometry(1)],
     glass: new THREE.MeshStandardMaterial({ color: '#0a0e15', metalness: 0.85, roughness: 0.06, envMapIntensity: 1.3 }),
     trim: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.15 }),
+    flame: null,
     chrome: new THREE.MeshStandardMaterial({ color: '#f2f4f8', metalness: 1, roughness: 0.12 }),
     lamps: new THREE.MeshBasicMaterial({ vertexColors: true }),
     rubber: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 }),
     rim: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.28, metalness: 0.85 }),
-    paints: {},
     env: null,
   };
   return shared;
 }
-function paint(scheme) {
-  const S = sharedParts();
-  if (!S.paints[scheme]) {
-    const sc = G.SPR.SCHEMES[scheme];
-    // clear-coated paint; phones get the plain (cheaper) version with a glossier base instead
-    const lite = G.NG_QUALITY && G.NG_QUALITY.lite;
-    S.paints[scheme] = lite
-      ? new THREE.MeshStandardMaterial({ color: sc.paint, metalness: 0.45, roughness: 0.22, envMapIntensity: 1.1 })
-      : new THREE.MeshPhysicalMaterial({ color: sc.paint, metalness: 0.45, roughness: 0.34, clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 1 });
-    if (S.env) S.paints[scheme].envMap = S.env;
-  }
-  return S.paints[scheme];
+// ---------- grime: mud, scorch and scrapes painted on in the shader ----------
+// Each truck has its own copies of the paint, trim and wheel materials with three uniforms:
+// uDirt (mud that builds up while racing, from the sills upward), uScorch (soot from hits) and
+// uScuff (bare scratches along the sides from the walls). Patterns come from noise on the model's
+// local coordinates, so they stick to the body (and turn with the wheels).
+const GRIME_GLSL = `
+uniform float uDirt;
+uniform float uScorch;
+uniform float uScuff;
+uniform vec3 uMud;
+varying vec3 vDirtPos;
+float dzHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float dzNoise(vec3 x) {
+  vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(dzHash(i), dzHash(i + vec3(1, 0, 0)), f.x), mix(dzHash(i + vec3(0, 1, 0)), dzHash(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(dzHash(i + vec3(0, 0, 1)), dzHash(i + vec3(1, 0, 1)), f.x), mix(dzHash(i + vec3(0, 1, 1)), dzHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
 }
+`;
+const GRIME_MASK = {
+  // body and trim: a ragged mud line that climbs as dirt builds, heavier around the wheel arches
+  // and on the tailgate; scratches only on the flanks below the windows
+  body: `
+    float lineH = 1.3 + uDirt * 4.6 + (dzNoise(vec3(q.x * 0.45, 0.0, q.z * 0.45)) - 0.5) * 1.8;
+    float low = 1.0 - smoothstep(lineH - 1.3, lineH + 0.7, q.y);
+    float arch = max(1.0 - smoothstep(1.5, 4.2, length(vec2(q.x + 4.0, q.y - 2.3))), 1.0 - smoothstep(1.5, 4.2, length(vec2(q.x - 5.0, q.y - 2.3))));
+    float rear = smoothstep(-6.5, -8.6, q.x) * (1.0 - smoothstep(2.5 + uDirt * 3.5, 6.0 + uDirt * 2.5, q.y));
+    mudM = clamp((low + arch * 0.7 + rear * 0.6) * smoothstep(0.4 - uDirt * 0.28, 0.62 - uDirt * 0.22, n1), 0.0, 1.0) * smoothstep(0.0, 0.1, uDirt);
+    scuffM = uScuff * smoothstep(3.5, 4.4, abs(q.z)) * smoothstep(0.8, 0.9, dzNoise(vec3(q.x * 0.3, q.y * 6.0, q.z * 0.5))) * (1.0 - smoothstep(5.4, 6.0, q.y));`,
+  rim: `
+    mudM = smoothstep(0.58 - uDirt * 0.5, 0.78 - uDirt * 0.42, n1) * smoothstep(0.0, 0.08, uDirt);`,
+  tyre: `
+    mudM = clamp(uDirt * (0.35 + n1 * 0.55), 0.0, 0.8);`,
+};
+function grime(mat, kind) {
+  const u = { uDirt: { value: 0 }, uScorch: { value: 0 }, uScuff: { value: 0 }, uMud: { value: new THREE.Color('#5a4228') } };
+  mat.userData.grime = u;
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, u);
+    sh.vertexShader = 'varying vec3 vDirtPos;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvDirtPos = position;');
+    sh.fragmentShader = GRIME_GLSL + sh.fragmentShader
+      .replace('#include <color_fragment>', `#include <color_fragment>
+  float mudM = 0.0, scorchM = 0.0, scuffM = 0.0;
+  {
+    vec3 q = vDirtPos;
+    float n1 = dzNoise(q * 0.85) * 0.65 + dzNoise(q * 2.6 + 7.0) * 0.35;
+    ${GRIME_MASK[kind]}
+    scorchM = uScorch * smoothstep(0.45, 0.72, dzNoise(q * 0.42 + 31.0) * 0.7 + dzNoise(q * 1.7) * 0.3);
+    vec3 mudCol = uMud * (0.72 + n1 * 0.5);
+    diffuseColor.rgb = mix(diffuseColor.rgb, mudCol, mudM * 0.94);
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.6, 0.6, 0.62), scuffM * 0.85);
+    diffuseColor.rgb *= 1.0 - scorchM * 0.85;
+  }`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n\troughnessFactor = mix(roughnessFactor, 0.95, max(mudM, scorchM * 0.7));')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n\tmetalnessFactor *= 1.0 - max(mudM, scorchM);')
+      .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\n\t#ifdef USE_CLEARCOAT\n\tmaterial.clearcoat *= 1.0 - max(mudM, scorchM);\n\t#endif');
+  };
+  mat.customProgramCacheKey = () => 'grime:' + kind;
+  return mat;
+}
+
+function paint(scheme) {
+  const sc = G.SPR.SCHEMES[scheme];
+  // clear-coated paint; phones get the plain (cheaper) version with a glossier base instead
+  const lite = G.NG_QUALITY && G.NG_QUALITY.lite;
+  const m = lite
+    ? new THREE.MeshStandardMaterial({ color: sc.paint, metalness: 0.45, roughness: 0.22, envMapIntensity: 1.1 })
+    : new THREE.MeshPhysicalMaterial({ color: sc.paint, metalness: 0.45, roughness: 0.34, clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 1 });
+  return grime(m, 'body');
+}
+// Every live truck's own materials (so the reflection map can be swapped on all of them).
+const live = new Set();
 // Reflections for every truck material (the track's sky, or the showroom's softboxes).
 export function setTruckEnv(env) {
   const S = sharedParts();
   if (S.env === env) return;
   S.env = env;
-  for (const m of [S.glass, S.trim, S.chrome, S.rubber, S.rim, ...Object.values(S.paints)]) { m.envMap = env; m.needsUpdate = true; }
+  for (const m of [S.glass, S.chrome, ...live]) { m.envMap = env; m.needsUpdate = true; }
+}
+function own(m) {
+  const S = sharedParts();
+  m.envMap = S.env;
+  live.add(m);
+  return m;
 }
 
 // Soft dark patch under each truck so it sits on the road.
@@ -306,23 +370,66 @@ function glowTexture() {
   return glowTex;
 }
 
+// Nitro flames out of both exhaust tips: additive cones, white-blue at the pipe fading through
+// orange to nothing. Built pointing along -X from x = 0 (the group sits at the tips).
+let flameGeo = null;
+function flameGeometry() {
+  if (flameGeo) return flameGeo;
+  const parts = [];
+  const shade = (g, inner) => {
+    const p = g.getAttribute('position');
+    const cols = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+      const t = U01(-p.getX(i) / (inner ? 2.0 : 4.6));
+      const c = inner ? new THREE.Color('#d8ecff').lerp(new THREE.Color('#3a6cff'), t).multiplyScalar(0.8 * (1 - t))
+        : new THREE.Color('#ffd070').lerp(new THREE.Color('#ff4a08'), Math.min(1, t * 1.8)).multiplyScalar(0.55 * Math.pow(1 - t, 1.2));
+      cols.set([c.r, c.g, c.b], i * 3);
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    return g;
+  };
+  for (const s of [1, -1]) {
+    parts.push(shade(new THREE.ConeGeometry(0.7, 4.6, 12, 4, true).rotateZ(Math.PI / 2).translate(-2.3, 0, s * 2.7).toNonIndexed(), false));
+    parts.push(shade(new THREE.ConeGeometry(0.36, 2.0, 8, 2, true).rotateZ(Math.PI / 2).translate(-1.0, 0, s * 2.7).toNonIndexed(), true));
+  }
+  const pos = [], col = [];
+  for (const g of parts) { pos.push(...g.getAttribute('position').array); col.push(...g.getAttribute('color').array); g.dispose(); }
+  flameGeo = new THREE.BufferGeometry();
+  flameGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  flameGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return flameGeo;
+}
+const U01 = (v) => Math.max(0, Math.min(1, v));
+let flameMat = null;
+
 /** A complete truck: root (position/heading), pivot (suspension), body, four wheels, brake glow, contact shadow. */
 export function makeTruck(scheme, opts = {}) {
   const S = sharedParts();
   const root = new THREE.Group();
   const pivot = new THREE.Group();
   root.add(pivot);
-  const body = new THREE.Mesh(S.body, [paint(scheme), S.glass, S.trim, S.chrome, S.lamps]);
+  const mats = {
+    paint: own(paint(scheme)),
+    trim: own(grime(S.trim.clone(), 'body')),
+    rim: own(grime(S.rim.clone(), 'rim')),
+    rubber: own(grime(S.rubber.clone(), 'tyre')),
+  };
+  const body = new THREE.Mesh(S.body, [mats.paint, S.glass, mats.trim, S.chrome, S.lamps]);
   body.castShadow = true;
   body.receiveShadow = true;
   pivot.add(body);
   const glow = new THREE.Mesh(brakeGlowGeometry(), new THREE.MeshBasicMaterial({ color: '#ff2a18', map: glowTexture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.3 }));
   pivot.add(glow);
+  if (!flameMat) flameMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const flames = new THREE.Mesh(flameGeometry(), flameMat);
+  flames.position.set(-8.9, 1.75, 0);
+  flames.visible = false;
+  pivot.add(flames);
   const wheels = [];
   for (const [x, z, front] of WHEELS) {
     const steer = new THREE.Group();
     steer.position.set(x, WHEEL_R, z);
-    const w = new THREE.Mesh(S.wheel[z > 0 ? 1 : 0], [S.rubber, S.rim]);
+    const w = new THREE.Mesh(S.wheel[z > 0 ? 1 : 0], [mats.rubber, mats.rim]);
     w.castShadow = !!opts.wheelShadows;
     steer.add(w);
     root.add(steer);
@@ -331,5 +438,22 @@ export function makeTruck(scheme, opts = {}) {
   if (!contactGeo) contactGeo = new THREE.PlaneGeometry(21, 11.5).rotateX(-Math.PI / 2);
   const contact = new THREE.Mesh(contactGeo, contactMaterial());
   contact.renderOrder = -1;
-  return { root, pivot, body, glow, contact, wheels, spin: 0, pitch: 0, roll: 0, acc: 0, bounce: 0, bv: 0, prevVF: 0, prevH: null, prevW: null, wasAir: false, brake: 0 };
+  const grimeU = [mats.paint, mats.trim, mats.rim, mats.rubber].map((m) => m.userData.grime);
+  const tr = {
+    root, pivot, body, glow, contact, wheels, flames, spin: 0, pitch: 0, roll: 0, pv: 0, rv: 0, acc: 0, bounce: 0, bv: 0, prevVF: 0, prevH: null, prevW: null, wasAir: false, brake: 0,
+    dirt: 0, scorch: 0, scuff: 0, smokeT: 0, odo: 0,
+    /** Grime levels 0..1 (mud, soot, scrapes) and the mud colour. */
+    setGrime(dirt, scorch, scuff, mud) {
+      for (const u of grimeU) {
+        u.uDirt.value = dirt; u.uScorch.value = scorch; u.uScuff.value = scuff;
+        if (mud) u.uMud.value.set(mud);
+      }
+    },
+    dispose() {
+      for (const m of Object.values(mats)) { live.delete(m); m.dispose(); }
+      glow.material.dispose();
+      contact.material.dispose();
+    },
+  };
+  return tr;
 }

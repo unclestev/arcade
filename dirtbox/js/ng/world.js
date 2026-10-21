@@ -4,6 +4,7 @@ import * as THREE from '../../vendor/three/three.module.min.js';
 import { G } from '../ns.js';
 import { HW, CURB, WALL, WORLD } from '../sim.js';
 import { voxGeometry, voxMaterial } from './voxmesh.js';
+import { TIME, addWind, terrainDetail, terrainNormal, waterNormals, lavaTextures, grassField, trackFlags, cloudLayer } from './nature.js';
 
 const U = G.U;
 const ROAD_Y = 0.05;
@@ -18,7 +19,7 @@ const LOOK = {
   city: { sun: '#dfe6ff', sunI: 2.0, hemiI: 1.05, sunDir: [-0.5, 0.6, -0.6], fog: [400, 1400], hills: 0, peaks: 0, peakCol: '#7c8088', water: null, city: true },
   forest: { sun: '#fff4dc', sunI: 2.4, hemiI: 1.1, sunDir: [-0.55, 0.7, -0.3], fog: [320, 1200], hills: 34, peaks: 200, peakCol: '#2c5a30', water: null },
   beach: { sun: '#fffaf0', sunI: 3.0, hemiI: 1.2, sunDir: [-0.4, 0.8, -0.3], fog: [600, 1800], hills: 6, peaks: 0, peakCol: '#dcc48a', water: { y: -1.2, color: '#2a8ac0', sea: true } },
-  volcano: { sun: '#ffb080', sunI: 2.2, hemiI: 1.0, sunDir: [-0.5, 0.55, -0.5], fog: [300, 1100], hills: 22, peaks: 320, peakCol: '#2a2226', water: null, lava: true },
+  volcano: { sun: '#ffb080', sunI: 2.2, hemiI: 1.0, sunDir: [-0.5, 0.55, -0.5], fog: [300, 1100], hills: 22, peaks: 320, peakCol: '#2a2226', water: { y: -1.0, lava: true }, lava: true },
 };
 
 const hexLinear = (h) => new THREE.Color(h);
@@ -37,47 +38,100 @@ function canvasTexture(w, h, draw, opts = {}) {
   return t;
 }
 
-// Road surface: grainy dirt/asphalt in the theme's track colours, with ruts or a centre line.
-// u runs across the road (0..1 = -HW..HW), v along it (one tile = 64 units).
-function roadTexture(theme) {
+// Road surface: dirt or asphalt in the theme's track colours, plus a matching normal map so the
+// sun picks out ruts, pebbles and cracks. u runs across the road (0..1 = -HW..HW), v along it
+// (one tile = 64 units). Built from one height field so colour and relief line up.
+function roadMaps(theme) {
   const pal = theme.colors;
-  return canvasTexture(256, 512, (ctx, w, h) => {
-    const rnd = U.rng(7);
-    const base = U.hex(pal.TRACK[0]);
+  const lite = G.NG_QUALITY.lite;
+  const w = lite ? 256 : 512, h = lite ? 512 : 1024;
+  const sc = w / 256;
+  const rnd = U.rng(7);
+  const city = theme.lineStyle === 'center';
+  const base = U.hex(pal.TRACK[0]), line = U.hex(pal.LINE[0]);
+  const H = new Float32Array(w * h);   // relief, roughly -1..1
+  const S = new Float32Array(w * h);   // brightness factor
+  const X = (d) => ((d + HW) / (2 * HW)) * w;
+  // periodic along v so the tile repeats cleanly down the track
+  const nz = (x, y, f) => U.noise(x / f, ((y % h) + h) % h / f);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    const n1 = nz(x / sc, y / sc, 22), n2 = nz(x / sc + 50, y / sc, 6), n3 = rnd();
+    H[i] = (n1 - 0.5) * 0.9 + (n2 - 0.5) * 0.5 + (n3 - 0.5) * (city ? 0.25 : 0.4);
+    S[i] = 0.84 + n1 * 0.2 + n2 * 0.1 + n3 * 0.08;
+  }
+  const lineMask = new Float32Array(w * h); // centre line (city) or tyre ruts (dirt), tinted LINE
+  const add = (cx, cy, r, dh, ds) => {
+    for (let yy = Math.floor(cy - r); yy <= cy + r; yy++) for (let xx = Math.floor(cx - r); xx <= cx + r; xx++) {
+      if (xx < 0 || xx >= w) continue;
+      const q = 1 - Math.hypot(xx - cx, yy - cy) / r;
+      if (q <= 0) continue;
+      const i = (((yy % h) + h) % h) * w + xx;
+      H[i] += dh * Math.sqrt(q); S[i] *= 1 + ds * q;
+    }
+  };
+  if (!city) {
+    // tyre ruts: worn-in grooves, darker and smoother
+    for (const d of [-14, -8, 8, 14]) {
+      const cx = X(d);
+      for (let y = 0; y < h; y++) {
+        const wob = Math.sin(y / h * U.TAU * 2 + d) * 2 * sc;
+        for (let x = Math.floor(cx - 10 * sc); x <= cx + 10 * sc; x++) {
+          const q = 1 - Math.abs(x - cx - wob) / (10 * sc);
+          if (q <= 0) continue;
+          const i = y * w + x;
+          H[i] -= q * q * 1.2;
+          S[i] *= 1 - q * 0.1;
+          lineMask[i] = Math.max(lineMask[i], q * q * 0.55);
+        }
+      }
+    }
+    // pebbles and small stones with a lit top
+    for (let k = 0; k < 1400 * sc; k++) add(rnd() * w, rnd() * h, (0.8 + rnd() * rnd() * 3.2) * sc, 0.9 + rnd(), rnd() < 0.5 ? 0.18 : -0.12);
+  } else {
+    // asphalt: patches, cracks and a dashed centre line
+    for (let k = 0; k < 10; k++) {
+      const px = rnd() * w, py = rnd() * h, pw = (20 + rnd() * 50) * sc, ph = (30 + rnd() * 80) * sc;
+      for (let y = Math.floor(py); y < py + ph; y++) for (let x = Math.floor(px); x < Math.min(w, px + pw); x++) S[((y % h) * w) + x] *= 0.9;
+    }
+    for (let k = 0; k < 14; k++) {
+      let x = rnd() * w, y = rnd() * h, a = rnd() * U.TAU;
+      for (let s = 0; s < 70 * sc; s++) {
+        a += (rnd() - 0.5) * 0.6; x += Math.cos(a); y += Math.sin(a);
+        if (x < 0 || x >= w) break;
+        const i = (((Math.floor(y) % h) + h) % h) * w + Math.floor(x);
+        H[i] -= 1.4; S[i] *= 0.7;
+      }
+    }
+    for (let k = 0; k < 2500 * sc; k++) add(rnd() * w, rnd() * h, (0.6 + rnd() * 1.2) * sc, 0.4, rnd() < 0.5 ? 0.12 : -0.1);
+  }
+  if (city) for (let y = 0; y < h; y++) if ((y % (128 * sc)) < 64 * sc) for (let x = Math.floor(X(0) - 3 * sc); x < X(0) + 3 * sc; x++) lineMask[y * w + x] = 1;
+  const edge = (x) => { const u = x / w; return 1 - 0.28 * (1 - U.clamp(Math.min(u, 1 - u) / 0.07, 0, 1)); };
+  const map = canvasTexture(w, h, (ctx) => {
     const img = ctx.createImageData(w, h);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      const n = U.noise(x / 18, y / 18) * 0.5 + U.noise(x / 5, y / 5) * 0.3 + rnd() * 0.2;
-      const k = 0.86 + n * 0.24;
-      const o = (y * w + x) * 4;
-      img.data[o] = U.clamp(base[0] * k, 0, 255); img.data[o + 1] = U.clamp(base[1] * k, 0, 255); img.data[o + 2] = U.clamp(base[2] * k, 0, 255); img.data[o + 3] = 255;
+      const i = y * w + x, o = i * 4;
+      // grooves collect darker dust; raised stones catch light
+      const k = S[i] * edge(x) * (1 + U.clamp(H[i], -1.5, 1.5) * 0.04);
+      const lm = lineMask[i] * (city ? 0.92 : 1);
+      for (let c = 0; c < 3; c++) img.data[o + c] = U.clamp(base[c] * k * (1 - lm) + line[c] * lm * (0.9 + S[i] * 0.1), 0, 255);
+      img.data[o + 3] = 255;
     }
     ctx.putImageData(img, 0, 0);
-    const line = pal.LINE[0];
-    const X = (d) => ((d + HW) / (2 * HW)) * w;
-    if (theme.lineStyle === 'center') {
-      ctx.fillStyle = line;
-      for (let y = 0; y < h; y += 128) ctx.fillRect(X(0) - 3, y, 6, 64);
-    } else {
-      // tyre ruts: soft darker bands with pebbles
-      for (const d of [-14, -8, 8, 14]) {
-        const g = ctx.createLinearGradient(X(d) - 9, 0, X(d) + 9, 0);
-        g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.5, line); g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.globalAlpha = 0.55;
-        ctx.fillStyle = g;
-        ctx.fillRect(X(d) - 9, 0, 18, h);
-      }
-      ctx.globalAlpha = 1;
-      for (let i = 0; i < 900; i++) {
-        ctx.fillStyle = rnd() < 0.5 ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.12)';
-        const s = 1 + rnd() * 2.5;
-        ctx.fillRect(rnd() * w, rnd() * h, s, s);
-      }
-    }
-    // darker edges where the road meets the curb
-    const e = ctx.createLinearGradient(0, 0, w, 0);
-    e.addColorStop(0, 'rgba(0,0,0,0.28)'); e.addColorStop(0.07, 'rgba(0,0,0,0)'); e.addColorStop(0.93, 'rgba(0,0,0,0)'); e.addColorStop(1, 'rgba(0,0,0,0.28)');
-    ctx.fillStyle = e; ctx.fillRect(0, 0, w, h);
   }, { clampS: true });
+  // normal map from the height field
+  const at = (x, y) => H[(((y % h) + h) % h) * w + U.clamp(x, 0, w - 1)];
+  const str = (city ? 0.9 : 1.6) / sc;
+  const normal = canvasTexture(w, h, (ctx) => {
+    const img = ctx.createImageData(w, h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const dx = (at(x + 1, y) - at(x - 1, y)) * str, dy = (at(x, y + 1) - at(x, y - 1)) * str;
+      const l = Math.hypot(dx, dy, 1), o = (y * w + x) * 4;
+      img.data[o] = (-dx / l * 0.5 + 0.5) * 255; img.data[o + 1] = (dy / l * 0.5 + 0.5) * 255; img.data[o + 2] = (1 / l * 0.5 + 0.5) * 255; img.data[o + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  }, { clampS: true, linear: true });
+  return { map, normal };
 }
 
 // Soft-edged blob (puddle / oil / lava) as an alpha mask, same shape recipe as the Classic ground.
@@ -318,7 +372,26 @@ export function buildWorld(track) {
   const scene = new THREE.Scene();
   const disposables = [];
   const keep = (o) => { disposables.push(o); return o; };
-  const world = { scene, track, theme, look, dynamic: {} };
+  const world = { scene, track, theme, look, dynamic: {}, flow: [], envMats: [], lavaMats: [] };
+  // Water: glossy, rippling (scrolling normal map) and reflecting the sky once the env map is set.
+  const waterMaterial = (color, rep, opacity) => {
+    const n = keep(waterNormals().clone());
+    n.needsUpdate = true;
+    n.repeat.set(rep, rep);
+    const m = new THREE.MeshStandardMaterial({ color, roughness: 0.05, metalness: 0.25, transparent: true, opacity, normalMap: n, normalScale: new THREE.Vector2(0.35, 0.35), envMapIntensity: 1.2 });
+    world.flow.push({ tex: n, sx: 0.011, sy: 0.017 });
+    world.envMats.push(m);
+    return m;
+  };
+  // Lava: glowing cracks between dark crust plates, creeping slowly and pulsing.
+  const lavaMaterial = (rep) => {
+    const L = lavaTextures();
+    const map = keep(L.map.clone()), emi = keep(L.emi.clone());
+    for (const t of [map, emi]) { t.needsUpdate = true; t.repeat.set(rep, rep); world.flow.push({ tex: t, sx: 0.004, sy: 0.006 }); }
+    const m = new THREE.MeshStandardMaterial({ map, emissive: '#ff5a18', emissiveMap: emi, emissiveIntensity: 2.2, roughness: 0.7 });
+    world.lavaMats.push(m);
+    return m;
+  };
 
   // sky dome: the theme's sky gradient, horizon at the bottom
   const sky = theme.sky.map(hexLinear);
@@ -401,7 +474,10 @@ export function buildWorld(track) {
     }
     g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
     g.computeVertexNormals();
-    const m = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0 }));
+    const detail = terrainDetail(), dn = terrainNormal();
+    detail.repeat.set(size / 26, size / 26);
+    dn.repeat.set(size / 26, size / 26);
+    const m = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0, map: detail, normalMap: dn, normalScale: new THREE.Vector2(0.55, 0.55) }));
     const terrain = new THREE.Mesh(g, m);
     terrain.receiveShadow = true;
     scene.add(terrain);
@@ -409,9 +485,9 @@ export function buildWorld(track) {
       const wg = keep(new THREE.PlaneGeometry(size, size));
       wg.rotateX(-Math.PI / 2);
       wg.translate(ext0 + size / 2, look.water.y, ext0 + size / 2);
-      const wm = keep(new THREE.MeshStandardMaterial({ color: look.water.color, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.86 }));
+      const wm = keep(look.water.lava ? lavaMaterial(size / 60) : waterMaterial(look.water.color, size / 70, 0.86));
       const water = new THREE.Mesh(wg, wm);
-      water.receiveShadow = true;
+      water.receiveShadow = !look.water.lava;
       scene.add(water);
     }
   }
@@ -427,8 +503,9 @@ export function buildWorld(track) {
     }
     roadRanges.push([start, track.n]); // ribbon() wraps index n back to 0, closing the loop
   }
-  const roadTex = keep(roadTexture(theme));
-  const roadMat = keep(new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.93, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
+  const roadTex = roadMaps(theme);
+  keep(roadTex.map); keep(roadTex.normal);
+  const roadMat = keep(new THREE.MeshStandardMaterial({ map: roadTex.map, normalMap: roadTex.normal, normalScale: new THREE.Vector2(0.9, 0.9), roughness: theme.lineStyle === 'center' ? 0.82 : 0.93, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
   {
     const g = keep(faceUp(ribbon(track, -HW, HW, ROAD_Y, ROAD_Y, { ranges: roadRanges })));
     const road = new THREE.Mesh(g, roadMat);
@@ -553,9 +630,7 @@ export function buildWorld(track) {
       scene.add(new THREE.Mesh(g, m));
     }
     const surf = keep(faceUp(ribbon(track, -DRIVE, DRIVE, -1.1, -1.1, { ranges: [[a, b]] })));
-    const pm = keep(lava
-      ? new THREE.MeshStandardMaterial({ color: '#ff6a20', emissive: '#ff4a10', emissiveIntensity: 1.6, roughness: 0.6 })
-      : new THREE.MeshStandardMaterial({ color: pal.PIT[0], roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.82 }));
+    const pm = keep(lava ? lavaMaterial(1.6) : waterMaterial(pal.PIT[0], 2, 0.84));
     world.pitMats.push({ m: pm, lava });
     const pool = new THREE.Mesh(surf, pm);
     pool.receiveShadow = !lava;
@@ -563,13 +638,21 @@ export function buildWorld(track) {
   }
 
   // puddles and oil slicks (on the volcano the "oil" is lava)
+  world.lavaMats = world.lavaMats || [];
   {
     const make = (h, kind, seed) => {
       const tex = keep(blobTexture(seed));
       let m;
-      if (kind === 'oil' && look.lava) m = new THREE.MeshStandardMaterial({ color: '#ff7020', emissive: '#ff4a10', emissiveIntensity: 1.3, alphaMap: tex, transparent: true, roughness: 0.5, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 });
+      if (kind === 'oil' && look.lava) {
+        const L = lavaTextures();
+        m = new THREE.MeshStandardMaterial({ map: L.map, emissive: '#ff5a18', emissiveMap: L.emi, emissiveIntensity: 2.2, alphaMap: tex, transparent: true, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 });
+        world.lavaMats.push(m);
+      }
       else if (kind === 'oil') m = new THREE.MeshStandardMaterial({ color: pal.OIL[0], alphaMap: tex, transparent: true, roughness: 0.12, metalness: 0.3, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 });
-      else m = new THREE.MeshStandardMaterial({ color: pal.PUDDLE[0], alphaMap: tex, transparent: true, opacity: 0.88, roughness: 0.06, metalness: 0.15, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 });
+      else {
+        m = waterMaterial(pal.PUDDLE[0], 1.2, 0.88);
+        Object.assign(m, { alphaMap: tex, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 });
+      }
       keep(m);
       const g = keep(new THREE.PlaneGeometry(h.r * 2.6, h.r * 2.6));
       g.rotateX(-Math.PI / 2);
@@ -598,7 +681,9 @@ export function buildWorld(track) {
   // shadow camera) are culled. Phones get a slightly thinner forest.
   {
     const keepRate = G.NG_QUALITY.decor || 1;
-    const list = placeDecor(track, theme).filter((o) => o.type === 'stand' || U.hash2(Math.round(o.x * 7), Math.round(o.y * 3)) < keepRate);
+    const lavaY = look.water && look.water.lava ? look.water.y + 0.4 : -Infinity;
+    const list = placeDecor(track, theme).filter((o) => o.type === 'stand' || (U.hash2(Math.round(o.x * 7), Math.round(o.y * 3)) < keepRate && heightAt(o.x, o.y) > lavaY));
+    world.decor = list;
     const TILE = 220;
     const groups = new Map();
     for (const o of list) {
@@ -607,6 +692,15 @@ export function buildWorld(track) {
       groups.get(key).push(o);
     }
     const mat = voxMaterial();
+    // plants sway in the wind (amount by type; local voxel units, full effect at the reference height)
+    const SWAY = { oak: [0.7, 24], bush: [0.35, 8], pine: [0.8, 30], pine_snow: [0.6, 30], palm: [1.6, 30], deadtree: [0.4, 24] };
+    const windMats = {};
+    const matFor = (type) => {
+      const sw = SWAY[type];
+      if (!sw) return mat;
+      if (!windMats[type]) windMats[type] = keep(addWind(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, metalness: 0.05 }), sw[0], sw[1], 'tree:' + type));
+      return windMats[type];
+    };
     const geos = new Map();
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sv = new THREE.Vector3(1, 1, 1), pv = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
     for (const [key, items] of groups) {
@@ -614,7 +708,7 @@ export function buildWorld(track) {
       const gk = type + ':' + v;
       if (!geos.has(gk)) geos.set(gk, keep(voxGeometry(G.SPR.vox.decor(type, +v))));
       const geo = geos.get(gk);
-      const inst = new THREE.InstancedMesh(geo, mat, items.length);
+      const inst = new THREE.InstancedMesh(geo, matFor(type), items.length);
       items.forEach((o, i) => {
         q.setFromAxisAngle(up, -(o.a || 0));
         const s = type === 'stand' ? 1.25 : 1.1 + U.hash2(Math.round(o.x), Math.round(o.y)) * 0.35;
@@ -631,9 +725,29 @@ export function buildWorld(track) {
     }
   }
 
-  world.update = (t) => {
+  // grass along the track, flags beside it, clouds above
+  {
+    const wl = look.water ? look.water.y + (look.water.lava ? 0.6 : 0.2) : -Infinity;
+    const decor = world.decor || [];
+    const ok = (x, y, h) => h > wl && !decor.some((o) => Math.abs(o.x - x) < 5 && Math.abs(o.y - y) < 5);
+    for (const g of grassField(track, theme, track.def.theme, heightAt, ok, keep)) scene.add(g);
+    const near = (s, a, b) => track.wrapS(s - a) <= b - a; // s within [a, b] along the loop
+    const avoid = (s) => near(s, -95, 70) || track.ramps.some((r) => near(s, r.s0 - 20, (r.pit ? r.pit.s1 : r.s1) + 20));
+    for (const m of trackFlags(track, heightAt, keep, avoid)) scene.add(m);
+    world.clouds = cloudLayer(track.def.theme, fogCol, keep);
+    scene.add(world.clouds.mesh);
+  }
+
+  world.update = (t, cam) => {
+    TIME.value = t;
     for (const tex of world.boostTex) tex.offset.y = -t * 1.6;
-    for (const p of world.pitMats) if (p.lava) p.m.emissiveIntensity = 1.4 + Math.sin(t * 3) * 0.3;
+    for (const f of world.flow) f.tex.offset.set(t * f.sx, t * f.sy);
+    const pulse = 2.0 + Math.sin(t * 2.2) * 0.35 + Math.sin(t * 5.3) * 0.15;
+    for (const m of world.lavaMats) m.emissiveIntensity = pulse;
+    if (cam && world.clouds) world.clouds.update(t, cam);
+  };
+  world.setEnv = (env) => {
+    for (const m of world.envMats) if (m.envMap !== env) { m.envMap = env; m.needsUpdate = true; }
   };
   world.dispose = () => {
     for (const d of disposables) if (d && d.dispose) d.dispose();

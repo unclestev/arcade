@@ -7,7 +7,7 @@ import { LETTER_WORD } from '../sim.js';
 import { makeCrate, crateMaterial, makeLetter, makeBomb, setPropsEnv } from './props3d.js';
 import { buildWorld, envScene, ROAD_HEIGHT } from './world.js';
 import { makeTruck, setTruckEnv, WHEEL_R } from './truck3d.js';
-import { Particles, Skids } from './particles.js';
+import { Particles, Skids, Decals, Rings, splatTexture } from './particles.js';
 import * as HUD from './hud3d.js';
 import * as UI from './menus3d.js';
 
@@ -24,7 +24,20 @@ export const CAM_NAMES = Object.keys(CAMS);
 
 let renderer = null, canvas = null, camera = null, stage = null, shown = false;
 let cached = null;           // { index, world } for the current track only
-let soft = null, glow = null, skids = null, flashLight = null;
+let soft = null, glow = null, skids = null, flashLight = null, weather = null, scorch = null, rings = null;
+let liveTrucks = [];
+// Per theme: the mud that builds up on the trucks, how fast, how rough the ground rides, what flies
+// off the tyres, and the ambient weather around the camera.
+const GRIME = {
+  farm: { mud: '#5a4026', rate: 0.007, rough: 1, chunk: '#4a3420', wx: 'pollen' },
+  desert: { mud: '#b8925e', rate: 0.006, rough: 0.9, chunk: '#a8804e', wx: 'sand' },
+  snow: { mud: '#cfd6de', rate: 0.006, rough: 0.7, chunk: '#f4f8ff', wx: 'snow' },
+  swamp: { mud: '#3e3420', rate: 0.009, rough: 1.1, chunk: '#3a2e1c', wx: 'fireflies' },
+  city: { mud: '#4a4a4c', rate: 0.0025, rough: 0.3, chunk: null, wx: null },
+  forest: { mud: '#4a3820', rate: 0.007, rough: 1, chunk: '#3e2e1a', wx: 'leaves' },
+  beach: { mud: '#c8b48a', rate: 0.005, rough: 0.8, chunk: '#d8c498', wx: null },
+  volcano: { mud: '#3a3436', rate: 0.006, rough: 0.9, chunk: '#2a2426', wx: 'embers' },
+};
 const flashes = [];
 // Automatic resolution: drop the render scale when frames run slow, raise it again with headroom.
 const perf = { scale: 1, ema: 1 / 60, last: 0, checkT: 0, shadowsOff: false };
@@ -45,8 +58,8 @@ export function init() {
   if (renderer) return;
   const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   G.NG_QUALITY = coarse
-    ? { shadow: 1024, terrain: 90, dpr: 1.25, particles: 900, aa: false, decor: 0.7, lite: true }
-    : { shadow: 2048, terrain: 140, dpr: 1.75, particles: 1600, aa: true, decor: 1 };
+    ? { shadow: 1024, terrain: 90, dpr: 1.25, particles: 1100, aa: false, decor: 0.7, grass: 10000, weather: 260, lite: true }
+    : { shadow: 2048, terrain: 140, dpr: 1.75, particles: 2000, aa: true, decor: 1, grass: 18000, weather: 500 };
   stage = document.getElementById('game');
   canvas = document.createElement('canvas');
   canvas.className = 'ng3d';
@@ -67,6 +80,9 @@ export function init() {
   soft = new Particles(G.NG_QUALITY.particles, false);
   glow = new Particles(700, true);
   skids = new Skids(900);
+  weather = new Particles(G.NG_QUALITY.weather, false);
+  scorch = new Decals(32, splatTexture('scorch'));
+  rings = new Rings(8);
   flashLight = new THREE.PointLight('#ffb050', 0, 90, 1.6);
   HUD.build(stage);
   UI.build(stage);
@@ -74,7 +90,7 @@ export function init() {
   try { new ResizeObserver(resize).observe(stage); } catch (e) { /* ignore */ }
   canvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
   resize();
-  G.NG = { RaceView3D, show, setLook, perf, ui: UI, info: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }) };
+  G.NG = { RaceView3D, show, setLook, perf, ui: UI, camera, info: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }) };
 }
 
 function resize() {
@@ -183,22 +199,29 @@ export class RaceView3D {
     }
     setTruckEnv(cached.env.texture);
     setPropsEnv(cached.env.texture);
+    cached.world.setEnv(cached.env.texture);
     this.world = cached.world;
     this.scene = this.world.scene;
     if (this.scene.userData.dyn) this.scene.remove(this.scene.userData.dyn);
     this.dyn = new THREE.Group();
     this.scene.userData.dyn = this.dyn;
     this.scene.add(this.dyn);
-    soft.clear(); glow.clear(); skids.clear();
-    this.dyn.add(soft.points, glow.points, skids.mesh, flashLight);
+    soft.clear(); glow.clear(); skids.clear(); weather.clear(); scorch.clear(); rings.clear();
+    this.dyn.add(soft.points, glow.points, skids.mesh, flashLight, weather.points, scorch.mesh, rings.group);
+    this.grime = GRIME[this.def.theme] || GRIME.farm;
+    this.wxAcc = 0;
     flashLight.intensity = 0;
     for (const f of flashes) f.mesh.visible = false;
 
+    for (const tr of liveTrucks) tr.dispose();
     this.trucks = this.R.cars.map((c) => {
       const tr = makeTruck(this.scheme(c.slot));
+      tr.dirt = 0.04;
+      tr.setGrime(tr.dirt, 0, 0, this.grime.mud);
       this.dyn.add(tr.root, tr.contact);
       return tr;
     });
+    liveTrucks = this.trucks;
     this.pickups = new Map();
     for (const p of this.R.pickups) {
       const m = makeCrate(p.type);
@@ -233,7 +256,7 @@ export class RaceView3D {
       for (const o of tmp) o.removeFromParent();
       for (const f of flashes) f.mesh.visible = false;
       flashLight.intensity = 0;
-      glow.clear(); soft.clear();
+      glow.clear(); soft.clear(); scorch.clear(); rings.clear();
       this.shake = 0;
       this.warming = false;
     };
@@ -263,7 +286,22 @@ export class RaceView3D {
   dust(x, y, color, n, spread, size) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * U.TAU, sp = (spread || 20) * Math.random();
-      soft.spawn(x, y, 1, Math.cos(a) * sp, Math.sin(a) * sp, 6 + Math.random() * 14, 0.5 + Math.random() * 0.5, color, (size || 4) + Math.random() * 3, 25, 2, 7, 0.75);
+      soft.spawn(x, y, 1, Math.cos(a) * sp, Math.sin(a) * sp, 6 + Math.random() * 14, 0.7 + Math.random() * 0.7, color, (size || 4) + Math.random() * 3, 25, 2, 8, 0.75);
+    }
+  }
+  // a ring of dust rolling outward along the ground (landings), plus clods thrown up
+  dustRing(x, y, color, n, speed) {
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * U.TAU + Math.random() * 0.3, sp = speed * (0.8 + Math.random() * 0.4);
+      soft.spawn(x + Math.cos(a) * 4, y + Math.sin(a) * 4, 1, Math.cos(a) * sp, Math.sin(a) * sp, 4 + Math.random() * 6, 0.8 + Math.random() * 0.6, color, 5 + Math.random() * 3, 10, 2.6, 9, 0.7);
+    }
+    if (this.grime.chunk) this.chunks(x, y, 1, this.grime.chunk, 8, 0, 0, 30);
+  }
+  // clods of mud / snow / gravel with real weight
+  chunks(x, y, z, color, n, vx, vy, up) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * U.TAU, sp = 6 + Math.random() * 18;
+      soft.spawn(x, y, z, vx + Math.cos(a) * sp, vy + Math.sin(a) * sp, up * (0.6 + Math.random() * 0.8), 0.55 + Math.random() * 0.45, color, 0.8 + Math.random() * 0.9, 170, 0.4, 0, 1);
     }
   }
   sparks(x, y, z, n) {
@@ -272,21 +310,37 @@ export class RaceView3D {
       glow.spawn(x, y, z, Math.cos(a) * sp, Math.sin(a) * sp, 20 + Math.random() * 60, 0.25 + Math.random() * 0.25, Math.random() < 0.5 ? '#fff6a0' : '#ffb030', 0.9, 260, 0);
     }
   }
-  splash(x, y, n, color) {
+  splash(x, y, n, color, big) {
     for (let i = 0; i < n; i++) {
-      const a = Math.random() * U.TAU, sp = 10 + Math.random() * 35;
-      soft.spawn(x, y, 1, Math.cos(a) * sp, Math.sin(a) * sp, 40 + Math.random() * 60, 0.5 + Math.random() * 0.4, Math.random() < 0.4 ? '#ffffff' : color, 2 + Math.random() * 2, 260, 0.5, 2, 0.9);
+      const a = Math.random() * U.TAU, sp = (big ? 14 : 10) + Math.random() * (big ? 45 : 35);
+      soft.spawn(x, y, 1, Math.cos(a) * sp, Math.sin(a) * sp, (big ? 55 : 40) + Math.random() * (big ? 80 : 60), 0.5 + Math.random() * 0.5, Math.random() < 0.45 ? '#ffffff' : color, (big ? 2.4 : 2) + Math.random() * 2, 260, 0.5, 2, 0.9);
+    }
+    if (big) {
+      // a spray column and a cloud of mist
+      for (let i = 0; i < 10; i++) soft.spawn(x + (Math.random() - 0.5) * 6, y + (Math.random() - 0.5) * 6, 2, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10, 70 + Math.random() * 50, 0.7 + Math.random() * 0.4, '#ffffff', 2 + Math.random() * 2, 200, 0.6, 3, 0.85);
+      for (let i = 0; i < 6; i++) soft.spawn(x + (Math.random() - 0.5) * 10, y + (Math.random() - 0.5) * 10, 3, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, 6, 1.2 + Math.random() * 0.6, '#e8f0f4', 6 + Math.random() * 4, -4, 1.5, 10, 0.35);
     }
   }
   explosion(x, y, big) {
-    const n = big ? 40 : 18;
+    const ry = ROAD_HEIGHT;
+    const n = big ? 46 : 22;
     for (let i = 0; i < n; i++) {
-      const a = Math.random() * U.TAU, sp = 25 + Math.random() * 90;
-      glow.spawn(x, y, 4, Math.cos(a) * sp, Math.sin(a) * sp, 30 + Math.random() * 90, 0.45 + Math.random() * 0.45, ['#fff0a0', '#ffc040', '#ff8a20', '#e04a20'][(Math.random() * 4) | 0], 2.5 + Math.random() * 3, 160, 1.2, -1);
+      const a = Math.random() * U.TAU, sp = 25 + Math.random() * 95;
+      glow.spawn(x, y, 4, Math.cos(a) * sp, Math.sin(a) * sp, 30 + Math.random() * 90, 0.45 + Math.random() * 0.5, ['#fff0a0', '#ffc040', '#ff8a20', '#e04a20'][(Math.random() * 4) | 0], 2.5 + Math.random() * 3.5, 160, 1.2, -1);
     }
-    for (let i = 0; i < (big ? 12 : 6); i++) {
-      soft.spawn(x + (Math.random() - 0.5) * 8, y + (Math.random() - 0.5) * 8, 4, (Math.random() - 0.5) * 18, (Math.random() - 0.5) * 18, 14 + Math.random() * 16, 1 + Math.random() * 0.8, Math.random() < 0.5 ? '#3a3236' : '#5a5258', 6 + Math.random() * 4, -6, 1.2, 9, 0.7);
+    // a rising column of smoke that lingers
+    for (let i = 0; i < (big ? 18 : 9); i++) {
+      soft.spawn(x + (Math.random() - 0.5) * 9, y + (Math.random() - 0.5) * 9, 4, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, 12 + Math.random() * 18, 1.4 + Math.random() * 1.3, ['#2e282c', '#3a3236', '#4e4648'][(Math.random() * 3) | 0], 6 + Math.random() * 5, -8, 1.1, 11, 0.75);
     }
+    // debris and sparks
+    for (let i = 0; i < (big ? 14 : 7); i++) {
+      const a = Math.random() * U.TAU, sp = 20 + Math.random() * 45;
+      soft.spawn(x, y, 3, Math.cos(a) * sp, Math.sin(a) * sp, 40 + Math.random() * 50, 0.9 + Math.random() * 0.6, Math.random() < 0.5 ? '#1e1a1c' : '#4a3a30', 0.9 + Math.random() * 0.9, 170, 0.3, 0, 1);
+    }
+    this.sparks(x, y, 4, big ? 16 : 8);
+    // shockwave across the ground and a scorch mark left behind
+    rings.add(x, y, ry + 0.35, 2, big ? 36 : 22, big ? 0.5 : 0.38, '#ffc070', 0.95);
+    scorch.add(x, y, big ? 12 : 8, '#120c0a', 25, ry + 0.07);
     // fireball + light flash
     let f = flashes.find((q) => !q.mesh.visible);
     if (!f) {
@@ -332,6 +386,10 @@ export class RaceView3D {
             this.msg(e.kind === 'lava' ? 'TOO HOT!' : 'OUCH!', '#ff6a5a', 1, false);
           } else if (this.near(e.x, e.y)) A.sfx('spin');
           if (c) for (let i = 0; i < 6; i++) soft.spawn(c.x, c.y, 6, (Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20, 18, 0.9, '#4a4448', 5, -8, 1.2, 6, 0.8);
+          { // soot on the paint and smoke from under the hood for a few seconds
+            const tr = this.trucks[e.car];
+            if (tr) { tr.scorch = Math.min(1, tr.scorch + 0.55); tr.smokeT = 3.5; }
+          }
           break;
         }
         case 'points': HUD.popup(this, e.x, e.y, 14, '+' + e.pts, '#ffe060'); break;
@@ -371,26 +429,38 @@ export class RaceView3D {
         case 'wall':
           if (!this.near(e.x, e.y)) break;
           if (e.impact > 45) this.sparks(e.x, e.y, 3, 6);
+          if (e.impact > 40 && this.trucks[e.car]) { const tr = this.trucks[e.car]; tr.scuff = Math.min(1, tr.scuff + e.impact / 700); }
           if (me) { A.sfx('wall'); I.rumble(Math.min(1, e.impact / 150), 90); if (e.impact > 80) this.shake = Math.max(this.shake, 0.5); }
           break;
         case 'oil': if (me) A.sfx('skid'); break;
         case 'puddle':
-          if (this.near(e.x, e.y)) this.splash(e.x, e.y, 14, this.theme.colors.PUDDLE[0]);
+          if (this.near(e.x, e.y)) {
+            this.splash(e.x, e.y, 18, this.theme.colors.PUDDLE[0]);
+            rings.add(e.x, e.y, ROAD_HEIGHT + 0.2, 2, 13, 0.9, '#ffffff', 0.35, false);
+          }
+          if (this.trucks[e.car]) this.trucks[e.car].dirt = Math.min(1, this.trucks[e.car].dirt + 0.05);
           if (me) A.sfx('splash');
           break;
         case 'boostpad': if (me) A.sfx('boost'); break;
         case 'jump': if (me) A.sfx('jump'); break;
         case 'land': {
-          if (this.near(e.x, e.y)) this.dust(e.x, e.y, this.theme.dust, 12, 30, 5);
+          if (this.near(e.x, e.y)) { this.dust(e.x, e.y, this.theme.dust, 8, 30, 5); this.dustRing(e.x, e.y, this.theme.dust, Math.min(26, 10 + e.impact / 10), 26 + e.impact * 0.12); }
           if (me) { A.sfx('land'); I.rumble(Math.min(1, e.impact / 200), 120); }
           const tr = this.trucks[e.car];
-          if (tr) tr.bv = -Math.min(14, e.impact * 0.08);
+          if (tr) { tr.bv = -Math.min(14, e.impact * 0.08); tr.dropV = Math.min(14, e.impact * 0.07); tr.dirt = Math.min(1, tr.dirt + 0.02); }
           break;
         }
-        case 'splash':
-          if (this.near(e.x, e.y)) this.splash(e.x, e.y, 6, this.theme.colors.PIT[0]);
-          if (me && Math.random() < 0.3) A.sfx('splash');
+        case 'splash': {
+          const tr = this.trucks[e.car];
+          const entry = tr && this.t - (tr.lastSplash || -9) > 0.6;
+          if (tr) { tr.lastSplash = this.t; tr.dirt = Math.min(1, tr.dirt + (entry ? 0.12 : 0.01)); }
+          if (this.near(e.x, e.y)) {
+            this.splash(e.x, e.y, entry ? 34 : 6, this.theme.colors.PIT[0], entry);
+            if (entry || Math.random() < 0.3) rings.add(e.x, e.y, ROAD_HEIGHT - 1.0, 2, entry ? 22 : 12, entry ? 1.3 : 0.9, '#ffffff', entry ? 0.55 : 0.3, false);
+          }
+          if (me && (entry || Math.random() < 0.3)) A.sfx('splash');
           break;
+        }
         case 'bump':
           if (this.isMe(e.a) || this.isMe(e.b)) { A.sfx('bump'); I.rumble(0.3, 80); }
           break;
@@ -410,7 +480,7 @@ export class RaceView3D {
     for (const m of this.messages) m.t += dt;
     this.messages = this.messages.filter((m) => m.t < m.dur);
     for (const p of this.pops) p.t += dt;
-    this.world.update(this.t);
+    this.world.update(this.t, camera.position);
     const R = this.R, t = this.t;
     const ry = ROAD_HEIGHT;
 
@@ -488,6 +558,10 @@ export class RaceView3D {
     const scale = h / (2 * Math.tan((camera.fov * Math.PI) / 360));
     soft.update(dt, scale);
     glow.update(dt, scale);
+    this.weatherFx(dt);
+    weather.update(dt, scale);
+    scorch.update(dt);
+    rings.update(dt);
     HUD.update(this, this.game);
   }
 
@@ -510,7 +584,8 @@ export class RaceView3D {
     const braking = (c.brakeIn > 0.1 && c.vF > 3) || (c.vF - tr.prevVF) / dt < -150 ? 1 : 0;
     tr.brake += (braking - tr.brake) * Math.min(1, dt * 14);
     tr.glow.material.opacity = 0.16 + tr.brake * 0.84;
-    // suspension: squat/dive with acceleration, lean out of turns, pitch on ramps and in the air
+    // suspension: squat/dive with acceleration, lean out of turns, pitch on ramps and in the air.
+    // Springs (with a little overshoot) rather than plain easing, so the body rocks and settles.
     const acc = (c.vF - tr.prevVF) / dt;
     tr.prevVF = c.vF;
     tr.acc += (U.clamp(acc, -400, 400) - tr.acc) * Math.min(1, dt * 6);
@@ -520,24 +595,53 @@ export class RaceView3D {
     let pitchT, rollT;
     if (c.onRamp) pitchT = 0.27;
     else if (air) pitchT = U.clamp(Math.atan2(c.vz, Math.max(30, Math.abs(c.vF))) * 0.8, -0.45, 0.45);
-    else pitchT = U.clamp(tr.acc * 0.00028, -0.06, 0.06);
-    rollT = air ? 0 : U.clamp(-c.vF * yaw * 0.00042, -0.085, 0.085);
-    const k = 1 - Math.exp(-dt * 9);
-    tr.pitch += (pitchT - tr.pitch) * k;
-    tr.roll += (rollT - tr.roll) * k;
-    // landing bounce: a damped spring
-    tr.bv += (-tr.bounce * 160 - tr.bv * 14) * dt;
-    tr.bounce += tr.bv * dt;
-    const rough = !air && Math.abs(c.vF) > 20 ? (Math.sin(t * 31 + c.slot) * 0.05 + Math.sin(t * 17 + c.slot * 2) * 0.04) * Math.min(1, Math.abs(c.vF) / 120) : 0;
+    else pitchT = U.clamp(tr.acc * 0.00034, -0.075, 0.075);
+    rollT = air ? 0 : U.clamp(-c.vF * yaw * 0.0005, -0.1, 0.1);
+    // road texture under each wheel: bumps grow with speed, bigger on dirt than tarmac
+    const speedK = Math.min(1, Math.abs(c.vF) / 110);
+    tr.odo += Math.abs(c.vF) * dt;
+    const rough = air || c.onRamp ? 0 : this.grime.rough * speedK;
+    const bump = [0, 0, 0, 0];
+    for (let i = 0; i < 4; i++) {
+      const o = tr.odo + i * 13.7 + c.slot * 31;
+      bump[i] = (Math.sin(o * 0.37) * 0.5 + Math.sin(o * 0.91 + i) * 0.3 + Math.sin(o * 2.3 + i * 2) * 0.2) * 0.32 * rough;
+    }
+    // WHEELS order: rear-left, rear-right, front-left, front-right
+    pitchT += ((bump[0] + bump[1]) - (bump[2] + bump[3])) * 0.5 / 9;
+    rollT += ((bump[0] + bump[2]) - (bump[1] + bump[3])) * 0.5 / 7.6;
+    const sub = Math.max(1, Math.ceil(dt / (1 / 120)));
+    const h = dt / sub;
+    for (let k = 0; k < sub; k++) {
+      tr.pv += ((pitchT - tr.pitch) * 140 - tr.pv * 13) * h; tr.pitch += tr.pv * h;
+      tr.rv += ((rollT - tr.roll) * 120 - tr.rv * 11) * h; tr.roll += tr.rv * h;
+      // landing bounce: a damped spring
+      tr.bv += (-tr.bounce * 160 - tr.bv * 14) * h; tr.bounce += tr.bv * h;
+      // wheels drop on their springs in the air and tuck up on landing
+      const dropT = air ? -0.85 : 0;
+      tr.dropV = (tr.dropV || 0) + ((dropT - (tr.drop || 0)) * 120 - (tr.dropV || 0) * 12) * h;
+      tr.drop = U.clamp((tr.drop || 0) + tr.dropV * h, -0.95, 0.8);
+    }
     tr.pivot.rotation.set(tr.roll, 0, tr.pitch);
-    tr.pivot.position.y = U.clamp(tr.bounce, -1.2, 1.2) + rough;
+    tr.pivot.position.y = U.clamp(tr.bounce, -1.2, 1.2) + (bump[0] + bump[1] + bump[2] + bump[3]) * 0.25;
     // wheels roll with the ground speed; front wheels steer
     tr.spin -= (c.vF * dt) / WHEEL_R;
-    const drop = air ? -0.7 : 0;
-    for (const w of tr.wheels) {
+    tr.wheels.forEach((w, i) => {
       w.w.rotation.z = tr.spin;
-      w.steer.position.y = WHEEL_R + drop;
+      w.steer.position.y = WHEEL_R + tr.drop + bump[i];
       if (w.front) w.steer.rotation.y = -c.steer * 0.5;
+    });
+
+    // grime: mud builds with distance on loose ground; soot fades slowly; scrapes stay
+    tr.dirt = Math.min(1, tr.dirt + this.grime.rate * speedK * dt * (c.z <= 0.5 ? 1 : 0));
+    tr.scorch = Math.max(0, tr.scorch - dt * 0.015);
+    tr.setGrime(tr.dirt, tr.scorch, tr.scuff);
+
+    // nitro: flames from the exhausts while boosting
+    const boosting = c.boostT > 0;
+    tr.flames.visible = boosting;
+    if (boosting) {
+      const f = 0.8 + Math.random() * 0.5 + speedK * 0.3;
+      tr.flames.scale.set(f, 0.85 + Math.random() * 0.3, 0.85 + Math.random() * 0.3);
     }
 
     // trail effects (only near the player)
@@ -551,12 +655,52 @@ export class RaceView3D {
     tr.prevW = rw;
     const rx = c.x - cs * 8, rY = c.y - sn * 8;
     const gas = c.vF > 5 && c.vF < c.stats.vmax * 0.7;
-    if (ground && (sliding || gas || Math.abs(c.vF) > 90) && Math.random() < dt * (sliding ? 40 : 14)) {
-      soft.spawn(rx + (Math.random() - 0.5) * 7, rY + (Math.random() - 0.5) * 7, 1, -cs * 12 + (Math.random() - 0.5) * 16, -sn * 12 + (Math.random() - 0.5) * 16, 6 + Math.random() * 10, 0.6 + Math.random() * 0.5, this.theme.dust, 3.5 + Math.random() * 3, 10, 1.5, 9, 0.7);
+    const fast = Math.abs(c.vF) > 90;
+    // dust rolling off the back: bigger, longer clouds at speed or sliding
+    if (ground && (sliding || gas || fast) && Math.random() < dt * (sliding ? 46 : fast ? 26 : 16)) {
+      const w = rw[Math.random() < 0.5 ? 0 : 1];
+      soft.spawn(w[0] - cs * 3 + (Math.random() - 0.5) * 5, w[1] - sn * 3 + (Math.random() - 0.5) * 5, 1, -cs * 14 + (Math.random() - 0.5) * 18, -sn * 14 + (Math.random() - 0.5) * 18, 6 + Math.random() * 10, 0.8 + Math.random() * 0.8, this.theme.dust, 4.5 + Math.random() * 4 + speedK * 2, 10, 1.5, 11, 0.65);
     }
-    if (c.boostT > 0) for (let i = 0; i < 2; i++) glow.spawn(rx + (Math.random() - 0.5) * 2, rY + (Math.random() - 0.5) * 2, 3 + Math.random(), -c.vx * 0.2 + (Math.random() - 0.5) * 16, -c.vy * 0.2 + (Math.random() - 0.5) * 16, 4 + Math.random() * 6, 0.16 + Math.random() * 0.12, Math.random() < 0.5 ? '#ffe060' : '#ff7020', 2.4, 0, 3);
+    // clods thrown up by the rear tyres when they dig in
+    if (ground && this.grime.chunk && (sliding || (gas && c.vF > 25)) && Math.random() < dt * (sliding ? 22 : 12)) {
+      const w = rw[Math.random() < 0.5 ? 0 : 1];
+      this.chunks(w[0] - cs * 2, w[1] - sn * 2, 1.5, this.grime.chunk, 1, -cs * (20 + c.vF * 0.15), -sn * (20 + c.vF * 0.15), 34);
+    }
+    if (boosting) for (let i = 0; i < 2; i++) glow.spawn(rx + (Math.random() - 0.5) * 2, rY + (Math.random() - 0.5) * 2, 2 + Math.random(), -c.vx * 0.2 + (Math.random() - 0.5) * 16, -c.vy * 0.2 + (Math.random() - 0.5) * 16, 4 + Math.random() * 6, 0.16 + Math.random() * 0.12, Math.random() < 0.5 ? '#ffe060' : '#ff7020', 2.4, 0, 3);
     if (c.spinT > 0 && Math.random() < dt * 25) soft.spawn(c.x, c.y, 5, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10, 16, 0.9, Math.random() < 0.5 ? '#5a5258' : '#7a7278', 5, -8, 1.5, 6, 0.75);
+    // smoke from under the hood after a hit
+    if (tr.smokeT > 0) {
+      tr.smokeT -= dt;
+      if (Math.random() < dt * 22) soft.spawn(c.x + cs * 6 + (Math.random() - 0.5) * 3, c.y + sn * 6 + (Math.random() - 0.5) * 3, 6, -c.vx * 0.3 + (Math.random() - 0.5) * 6, -c.vy * 0.3 + (Math.random() - 0.5) * 6, 10 + Math.random() * 8, 1 + Math.random() * 0.6, Math.random() < 0.5 ? '#2a2628' : '#4a4446', 3.5, -10, 1.3, 7, 0.6 * Math.min(1, tr.smokeT));
+    }
     if (pit && Math.abs(c.vF) > 10 && Math.random() < dt * 30) this.splash(c.x, c.y, 1, this.theme.colors.PIT[0]);
+  }
+
+  // Ambient weather around the camera: snow, embers and ash, fireflies, drifting leaves, sand.
+  weatherFx(dt) {
+    const kind = this.grime.wx;
+    if (!kind) return;
+    const c = this.R.player;
+    const cx = c.x + Math.cos(this.camAng) * 50, cy = c.y + Math.sin(this.camAng) * 50;
+    const lite = G.NG_QUALITY.lite;
+    const R = (n) => (Math.random() - 0.5) * n;
+    const rate = { snow: 90, embers: 30, fireflies: 7, leaves: 6, sand: 5, pollen: 6 }[kind] * (lite ? 0.55 : 1);
+    this.wxAcc += dt * rate;
+    while (this.wxAcc >= 1) {
+      this.wxAcc--;
+      const x = cx + R(300), y = cy + R(300);
+      switch (kind) {
+        case 'snow': weather.spawn(x, y, 30 + Math.random() * 40, 8 + R(4), 3 + R(4), -12 - Math.random() * 6, 5, '#ffffff', 0.7 + Math.random() * 0.6, 0, 0, 0, 0.9); break;
+        case 'embers':
+          if (Math.random() < 0.6) glow.spawn(x, y, Math.random() * 4, R(6), R(6), 8 + Math.random() * 10, 1.8 + Math.random() * 1.2, Math.random() < 0.5 ? '#ff8a30' : '#ffc050', 0.6 + Math.random() * 0.5, -2, 0.3);
+          else weather.spawn(x, y, 25 + Math.random() * 30, 5 + R(4), R(4), -5 - Math.random() * 3, 5, Math.random() < 0.5 ? '#5a5458' : '#7a7476', 0.7 + Math.random() * 0.5, 0, 0, 0, 0.8);
+          break;
+        case 'fireflies': glow.spawn(x, y, 3 + Math.random() * 10, R(5), R(5), R(3), 2.5 + Math.random() * 1.5, Math.random() < 0.6 ? '#d8ff70' : '#ffe880', 0.7, 0, 0.2); break;
+        case 'leaves': weather.spawn(x, y, 25 + Math.random() * 25, 7 + R(6), R(6), -6 - Math.random() * 3, 5, ['#8a6a2a', '#a8742a', '#6a7a2a'][(Math.random() * 3) | 0], 0.8 + Math.random() * 0.4, 0, 0, 0, 1); break;
+        case 'pollen': glow.spawn(x, y, 3 + Math.random() * 14, 3 + R(3), R(3), R(2), 3, '#fff8d0', 0.35, 0, 0.1); break;
+        case 'sand': weather.spawn(x, y, 1 + Math.random() * 3, 22 + R(8), 6 + R(6), 1, 2.2, '#e8c890', 9 + Math.random() * 6, 0, 0.2, 8, 0.12); break;
+      }
+    }
   }
 
   updateCamera(dt) {
@@ -613,7 +757,7 @@ export class RaceView3D {
   // Backdrop for the screens after a race: a slow orbit around the player's truck.
   orbitFrame(dt) {
     this.t += dt;
-    this.world.update(this.t);
+    this.world.update(this.t, camera.position);
     const c = this.R.player, tr = this.trucks[PLAYER];
     for (const t of this.trucks) t.glow.material.opacity = 0.16;
     if (this.orbitA === undefined) this.orbitA = c.h + Math.PI * 0.75;
@@ -632,6 +776,9 @@ export class RaceView3D {
     const scale = h / (2 * Math.tan((camera.fov * Math.PI) / 360));
     soft.update(dt, scale);
     glow.update(dt, scale);
+    weather.update(dt, scale);
+    rings.update(dt);
+    for (const t of this.trucks) t.flames.visible = false;
     setTruckEnv(cached.env.texture);
     renderer.render(this.scene, camera);
   }
