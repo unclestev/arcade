@@ -57,6 +57,7 @@ Pending records for games verified later use `d arcade:<game>:<board>:pending:<r
 
 ```
 index.html, hub/      arcade front page
+favicon.ico, icons/   arcade icon (browser tab, bookmarks, phone home screen), used by the hub and every game
 games.js              list of games: title, path, and each edition (board) with its cover, look, accent and leaderboard stats
 kit/                  shared sign-in, scores and leaderboard UI used by every game (see kit/README.md)
 bomber/               Bomber (its rules in bomber/js/sim.js, referee module in bomber/verify.js)
