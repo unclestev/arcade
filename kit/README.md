@@ -47,13 +47,17 @@ Register it in `referee/src/games.js`.
 
 ```js
 rocks: {
-  title: 'Rocks', path: 'rocks/', cover: 'rocks/cover.jpg',
-  blurb: 'One line about the game.',
-  boards: [{ id: 'arcade', label: 'Arcade', stats: [['level', 'Level']] }],
+  title: 'Rocks', path: 'rocks/', genre: 'Shooter',
+  blurb: 'One or two sentences about the game.',
+  controls: ['touch', 'keyboard', 'gamepad'],            // any of touch, keyboard, mouse, gamepad, wheel
+  boards: [
+    { id: 'arcade', label: 'Arcade', look: 'modern', note: 'A few words', accent: '#5ad6ff', cover: 'rocks/cover.jpg',
+      stats: [['level', 'Level']] },
+  ],
 },
 ```
 
-A game can also add `editions`: extra cabinets on the hub that open the game with a query string and show one of its boards (see Bomber's Bitcoin Edition). They share the game's sign-in and referee module; give the edition its own board so its scores stay separate.
+Each board is one edition with its own leaderboard. The hub shows one cabinet per game with an edition picker and opens the game at `rocks/?mode=<board id>`, so read `mode` from the query string and preselect that edition. Set `look: 'legacy'` for a pixel-art edition (the hub shows its cover with hard pixels, scanlines and pixel type; use a pixel-exact PNG) and `look: 'modern'` otherwise. Covers are screenshots, about 16:10.
 
 ### 5. Use the kit in the game
 

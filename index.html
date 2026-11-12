@@ -6,46 +6,97 @@
 <!-- Security: only this site's own scripts may run. No inline scripts, no third-party code, no eval. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' wss: https://arcade-referee.sfailla.workers.dev; base-uri 'none'; form-action 'none'; object-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'; upgrade-insecure-requests">
 <meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#15110d">
-<meta name="description" content="UncleStev Arcade: browser arcade games with a Nostr leaderboard where every score is replayed and verified.">
+<meta name="theme-color" content="#0b0812">
+<meta name="description" content="UncleStev Arcade: browser arcade games in Classic and Next Gen editions, with a leaderboard where every score is replayed and verified.">
 <title>UncleStev Arcade</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,400;0,500;0,600;0,700;1,700&family=Press+Start+2P&display=swap">
 <link rel="stylesheet" href="kit/arcade.css">
 <link rel="stylesheet" href="hub/hub.css">
 <script type="module" src="hub/hub.js"></script>
 </head>
 <body>
+<a class="skip" href="#games">Skip to the games</a>
+
 <header class="top">
   <div class="wrap top-row">
-    <span class="tag">ARCADE</span>
-    <button class="acct" id="btnAcct" aria-label="Nostr sign-in and leaderboards"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span id="acctName">Sign in</span></button>
+    <a class="brand" href="#top" aria-label="UncleStev Arcade, top of page"><span class="brand-mark" aria-hidden="true"></span>UNCLESTEV <b>ARCADE</b></a>
+    <nav class="top-nav" aria-label="Sections">
+      <a href="#games">Games</a>
+      <a href="#scores">Leaderboards</a>
+      <a href="#how">How scores work</a>
+    </nav>
+    <button class="acct" id="btnAcct" type="button" aria-label="Sign in and account"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span id="acctName">Sign in</span></button>
   </div>
 </header>
 
-<section class="marquee">
-  <div class="wrap">
-    <h1 class="sign"><span class="lights" aria-hidden="true"></span>UNCLESTEV<b>ARCADE</b></h1>
-    <p class="lede">Arcade games that run in your browser. Sign in with Nostr to post scores that the arcade referee has replayed frame by frame and verified.</p>
+<section class="hero" id="top">
+  <div class="hero-sky" aria-hidden="true"></div>
+  <div class="hero-floor" aria-hidden="true"></div>
+  <div class="wrap hero-in">
+    <h1 class="sign"><span class="sign-a">UNCLESTEV</span><span class="sign-b">ARCADE</span></h1>
+    <p class="lede">Pick a game, pick Classic or Next Gen, and play. No account needed.</p>
+    <div class="hero-jump" id="heroJump"></div>
   </div>
 </section>
 
 <main class="wrap">
-  <h2 class="section-label">NOW PLAYING</h2>
-  <div class="cabinets" id="cabinets"></div>
+  <section id="games" aria-labelledby="hGames">
+    <div class="sec-head">
+      <h2 id="hGames">Games</h2>
+      <p>Every game works on a phone, with a keyboard, or with a gamepad.</p>
+    </div>
+    <div class="cabinets" id="cabinets"></div>
+  </section>
 
-  <h2 class="section-label">HOW SCORES WORK</h2>
-  <ol class="steps">
-    <li><b>Sign in without giving up your key.</b> Use a Nostr browser extension or signer app. The arcade never sees your private key.</li>
-    <li><b>Play a ranked run.</b> The referee hands your game a sealed random seed before the first move.</li>
-    <li><b>Post it.</b> The referee replays every frame of your run with the same rules, works out the score itself, and signs it.</li>
-  </ol>
+  <section id="scores" aria-labelledby="hScores">
+    <div class="sec-head">
+      <h2 id="hScores">Leaderboards</h2>
+      <p>Each edition has its own board. Every score was replayed and checked by the referee.</p>
+    </div>
+    <div class="lb" id="lb">
+      <div class="lb-pick" id="lbGames" role="group" aria-label="Game"></div>
+      <div class="lb-pick sub" id="lbBoards" role="group" aria-label="Edition"></div>
+      <p class="lb-note" id="lbNote" role="status"></p>
+      <ol class="lb-list" id="lbList"></ol>
+      <div class="lb-foot">
+        <button class="btn" id="lbFull" type="button">Full leaderboard</button>
+        <a class="btn primary" id="lbPlay" href="#games">Play</a>
+      </div>
+    </div>
+  </section>
+
+  <section id="how" aria-labelledby="hHow">
+    <div class="sec-head">
+      <h2 id="hHow">How scores work</h2>
+      <p>You can post as a guest with a nickname, or sign in to keep your scores on every device.</p>
+    </div>
+    <ol class="steps">
+      <li><b>Start a run.</b> The referee hands your game a sealed random seed before the first move.</li>
+      <li><b>Post your score.</b> At game over, tap Post. Guests type a nickname first.</li>
+      <li><b>The referee replays it.</b> Every frame of your run is replayed with the same rules, and the referee signs the score it works out itself.</li>
+    </ol>
+    <div class="signin-card">
+      <div>
+        <h3>Sign in once for every game</h3>
+        <p>Sign-in uses Nostr. The arcade never asks for, sees or stores your private key.</p>
+      </div>
+      <button class="btn" id="btnSignin2" type="button">Sign in</button>
+    </div>
+  </section>
 </main>
 
 <footer class="wrap foot">
   <p id="refLine">Scores are verified by the arcade referee.</p>
-  <p><a href="https://github.com/UncleStev/arcade" target="_blank" rel="noopener">Source on GitHub</a> · <a href="https://github.com/UncleStev/arcade/blob/main/SECURITY.md" target="_blank" rel="noopener">How keys stay safe</a></p>
+  <p class="foot-links"><a href="https://github.com/UncleStev/arcade" target="_blank" rel="noopener">Source on GitHub</a><a href="https://github.com/UncleStev/arcade/blob/main/SECURITY.md" target="_blank" rel="noopener">How keys stay safe</a></p>
 </footer>
+
+<nav class="tabbar" aria-label="Sections">
+  <a href="#games" data-tab="games"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="11" rx="4"/><path d="M8 11v3M6.5 12.5h3M15.5 11.5h.01M17.5 13.5h.01"/></svg>Games</a>
+  <a href="#scores" data-tab="scores"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20V11M12 20V5M18 20v-6"/></svg>Scores</a>
+  <a href="#how" data-tab="how"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.5a2.5 2.5 0 1 1 3.6 2.2c-.8.5-1.2 1-1.2 1.9M12 17h.01"/></svg>How</a>
+  <button type="button" id="tabAcct"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span id="tabAcctName">Sign in</span></button>
+</nav>
 </body>
 </html>

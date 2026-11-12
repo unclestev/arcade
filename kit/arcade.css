@@ -88,3 +88,10 @@
 .ax-guest input:disabled{opacity:.6}
 
 .ax-badge.pending{color:var(--ax-gold);border-color:currentColor}
+
+/* Tap targets: everything in the sheet is at least 44px tall so it is easy to hit on a phone. */
+.ax-sheet .ax-icon{width:44px;height:44px}
+.ax-sheet .ax-tabs button{min-height:44px;padding-inline:12px}
+.ax-sheet .ax-seg button{min-height:44px;padding:4px 14px}
+.ax-sheet .ax-btn{min-height:44px;padding-inline:14px}
+.ax-sheet .ax-field input{min-height:44px}

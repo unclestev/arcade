@@ -1,33 +1,41 @@
 // Every game in UncleStev Arcade. The hub page lists these and each game reads its own entry.
 // To add a game: add an entry here, a folder with the game, and its verify module in referee/src/games.js.
+//
+// Each board is one edition of the game with its own leaderboard. The hub shows one cabinet per game with
+// an edition picker, and opens the chosen edition at `<path>?mode=<board id>`.
+//   look    'legacy' = pixel-art edition: the hub shows it with hard pixels, scanlines and pixel type.
+//           'modern' = current-generation edition: smooth art and the hub's modern styling.
+//   cover   screenshot of that edition (legacy covers should be pixel-exact PNGs or clean JPEGs)
+//   note    a few words under the edition's name in the picker
+//   accent  colour used for that edition's glow and buttons
+//   stats   extra numbers the leaderboard shows for each score
 export const GAMES = {
   bomber: {
     title: 'Bomber',
     path: 'bomber/',
-    cover: 'bomber/cover.jpg',
-    blurb: "Catch Sparky's lit bombs in three water buckets before they hit the street. Atari-style Classic mode and a modern Next Gen remake.",
+    genre: 'Catch game',
+    blurb: "Sparky is tossing lit bombs off the wall. Catch every one in your three water buckets before they hit the street.",
+    controls: ['touch', 'keyboard', 'mouse', 'gamepad', 'wheel'],
     boards: [
-      { id: 'classic', label: 'Classic', stats: [['group', 'Group']] },
-      { id: 'nextgen', label: 'Next Gen', stats: [['group', 'Group'], ['combo', 'Combo']] },
-      { id: 'bitcoin', label: 'Bitcoin', stats: [['group', 'Block'], ['combo', 'Combo']] },
+      { id: 'classic', label: 'Classic', look: 'legacy', note: '1981-style pixels', accent: '#ffb347', cover: 'bomber/cover-classic.png',
+        stats: [['group', 'Group']] },
+      { id: 'nextgen', label: 'Next Gen', look: 'modern', note: 'Combos and power-ups', accent: '#4fc3ff', cover: 'bomber/cover.jpg',
+        stats: [['group', 'Group'], ['combo', 'Combo']] },
+      { id: 'bitcoin', label: 'Bitcoin', look: 'modern', note: 'Stack the sats', accent: '#f7931a', cover: 'bomber/cover-bitcoin.jpg',
+        stats: [['group', 'Block'], ['combo', 'Combo']] },
     ],
-    // Extra hub cabinets for special editions of this game. They share its sign-in and leaderboards.
-    editions: [{
-      title: 'Bomber: Bitcoin Edition',
-      path: 'bomber/?mode=bitcoin',
-      cover: 'bomber/cover-bitcoin.jpg',
-      board: 'bitcoin',
-      blurb: 'Satoshi is mining coins off the rig. Stack every falling bitcoin in your cold wallets before the price crashes. Next Gen rules, its own leaderboard.',
-    }],
   },
   dirtbox: {
     title: 'Dirtbox Rally',
     path: 'dirtbox/',
-    cover: 'dirtbox/cover.jpg',
-    blurb: 'Off-road racing with boxy 4x4s, missiles, bombs and jumps over the creek. Pixel-art Classic or a 3D Next Gen chase-cam version. Finish in the top three or lose a truck.',
+    genre: 'Off-road racing',
+    blurb: 'Race boxy 4x4s with missiles, bombs, nitro and jumps over the creek. Eight tracks per circuit: finish in the top three or lose a truck.',
+    controls: ['touch', 'keyboard', 'gamepad', 'wheel'],
     boards: [
-      { id: 'classic', label: 'Classic', stats: [['race', 'Race'], ['wins', 'Wins']] },
-      { id: 'nextgen', label: 'Next Gen', stats: [['race', 'Race'], ['wins', 'Wins']] },
+      { id: 'classic', label: 'Classic', look: 'legacy', note: 'Pixel-art isometric', accent: '#ffd55a', cover: 'dirtbox/cover.jpg',
+        stats: [['race', 'Race'], ['wins', 'Wins']] },
+      { id: 'nextgen', label: 'Next Gen', look: 'modern', note: '3D chase camera', accent: '#6fe08a', cover: 'dirtbox/cover-nextgen.jpg',
+        stats: [['race', 'Race'], ['wins', 'Wins']] },
     ],
   },
 };

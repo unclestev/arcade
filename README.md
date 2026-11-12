@@ -4,11 +4,12 @@ Browser arcade games with one shared Nostr sign-in and a leaderboard where every
 
 **Play:** https://unclestev.github.io/arcade/
 
-| Game | Boards | Play |
+| Game | Editions | Play |
 |---|---|---|
-| **Bomber** — catch Sparky's falling bombs in three water buckets. Atari-style Classic mode and a modern Next Gen remake. | Classic, Next Gen | [/arcade/bomber/](https://unclestev.github.io/arcade/bomber/) |
-| **Bomber: Bitcoin Edition** — Satoshi drops bitcoins off a mining rig; stack them in cold wallets before the price crashes. Next Gen rules with its own look and leaderboard. | Bitcoin | [/arcade/bomber/?mode=bitcoin](https://unclestev.github.io/arcade/bomber/?mode=bitcoin) |
-| **Dirtbox Rally** — off-road racing with boxy 4x4s, missiles, bombs, upgrades and jumps over the creek. Pixel-art isometric Classic or a 3D chase-cam Next Gen (same races, its own leaderboard). Eight tracks per circuit; finish in the top three or lose a truck. | Classic, Next Gen | [/arcade/dirtbox/](https://unclestev.github.io/arcade/dirtbox/) |
+| **Bomber** — catch Sparky's falling bombs in three water buckets. | Classic (Atari-style pixels), Next Gen (modern remake with combos and power-ups), Bitcoin (Next Gen rules, Satoshi drops coins off a mining rig) | [/arcade/bomber/](https://unclestev.github.io/arcade/bomber/) |
+| **Dirtbox Rally** — off-road racing with boxy 4x4s, missiles, bombs, upgrades and jumps over the creek. Eight tracks per circuit; finish in the top three or lose a truck. | Classic (pixel-art isometric), Next Gen (3D chase cam, same races) | [/arcade/dirtbox/](https://unclestev.github.io/arcade/dirtbox/) |
+
+The front page has one cabinet per game. Pick an edition on the cabinet and press Play; the game opens with that edition selected (`?mode=classic`, `?mode=nextgen`, `?mode=bitcoin`). Every edition has its own leaderboard. Classic editions are shown with their original pixel art (hard pixels, scanlines, pixel type); Next Gen editions get the modern look.
 
 Every game works with touch, keyboard and mouse; Bomber and Dirtbox Rally also support gamepads and the Logitech G29 wheel (Dirtbox Rally has a wheel setup wizard for steering, pedals and buttons).
 
@@ -56,7 +57,7 @@ Pending records for games verified later use `d arcade:<game>:<board>:pending:<r
 
 ```
 index.html, hub/      arcade front page
-games.js              list of games: title, path, cover, boards, the stats each board shows, and extra edition cabinets
+games.js              list of games: title, path, and each edition (board) with its cover, look, accent and leaderboard stats
 kit/                  shared sign-in, scores and leaderboard UI used by every game (see kit/README.md)
 bomber/               Bomber (its rules in bomber/js/sim.js, referee module in bomber/verify.js)
 dirtbox/              Dirtbox Rally (its rules in dirtbox/js/sim.js, referee module in dirtbox/verify.js)
